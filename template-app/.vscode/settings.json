@@ -6,6 +6,7 @@
     "freertos.h": "c",
     "task.h": "c",
     "event_groups.h": "c",
-    "D.C": "cpp"
+    "D.C": "cpp",
+    "esp_system.h": "c"
   }
 }
