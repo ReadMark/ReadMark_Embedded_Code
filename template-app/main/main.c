@@ -36,93 +36,14 @@
 // 서버 통신 설정
 static EventGroupHandle_t s_wifi_evt; // 핸들의 이벤트를 담는 변수
 
-#define BOARD_ESP32CAM_AITHINKER // 해당 핀맵을 사용한다고 선언
-
-// 카메라 초기화 핀맵 (ESP32-CAM)
-#ifdef BOARD_ESP32CAM_AITHINKER
-#define PWDN_GPIO_NUM 32
-#define RESET_GPIO_NUM -1
-#define XCLK_GPIO_NUM 0
-#define SIOD_GPIO_NUM 26
-#define SIOC_GPIO_NUM 27
-
-#define Y9_GPIO_NUM 35
-#define Y8_GPIO_NUM 34
-#define Y7_GPIO_NUM 39
-#define Y6_GPIO_NUM 36
-#define Y5_GPIO_NUM 21
-#define Y4_GPIO_NUM 19
-#define Y3_GPIO_NUM 18
-#define Y2_GPIO_NUM 5
-#define VSYNC_GPIO_NUM 25
-#define HREF_GPIO_NUM 23
-#define PCLK_GPIO_NUM 22
-#endif
+#define WIFI_CONNECTED_BIT BIT0 // AP에 연결됨
+#define WIFI_GOTIP_BIT BIT1     // DHCP로 IP 획득
 
 // LOG용 TAG 모음
 // 다른 파일에서 접근 못하게 static으로 했는데 .. 파일이 하나야 ㅠㅠ
-static const char *captureTag = "Take_Capture";
-static const char *flashTimerTag = "Flash_Timer";
-static const char *flashChannelTag = "Flash_Channel";
-// 카메라 설정
-#if ESP_CAMERA_SUPPORTED
-static camera_config_t camera_config = {
-    .pin_pwdn = PWDN_GPIO_NUM,
-    .pin_reset = RESET_GPIO_NUM,
-    .pin_xclk = XCLK_GPIO_NUM,
-    .pin_sccb_sda = SIOD_GPIO_NUM,
-    .pin_sccb_scl = SIOC_GPIO_NUM,
-
-    .pin_d7 = Y9_GPIO_NUM,
-    .pin_d6 = Y8_GPIO_NUM,
-    .pin_d5 = Y7_GPIO_NUM,
-    .pin_d4 = Y6_GPIO_NUM,
-    .pin_d3 = Y5_GPIO_NUM,
-    .pin_d2 = Y4_GPIO_NUM,
-    .pin_d1 = Y3_GPIO_NUM,
-    .pin_d0 = Y2_GPIO_NUM,
-    .pin_vsync = VSYNC_GPIO_NUM,
-    .pin_href = HREF_GPIO_NUM,
-    .pin_pclk = PCLK_GPIO_NUM,
-
-    .xclk_freq_hz = 20000000, // 20 MHz
-    .ledc_timer = LEDC_TIMER_0,
-    .ledc_channel = LEDC_CHANNEL_0,
-    .pixel_format = PIXFORMAT_JPEG, // 웹스트리밍/스냅샷 용
-    .frame_size = FRAMESIZE_SVGA,   // SVGA, XGA
-    .jpeg_quality = 10,             // 0(최고)~63(최저)
-    .fb_count = 2,                  // 더 크게 하면 프레임 안정 (2가 빨랐음)
-    .grab_mode = CAMERA_GRAB_LATEST,
-    .fb_location = CAMERA_FB_IN_PSRAM,
-};
-
-static void tune_sensor_for_quality(void)
-{
-    sensor_t *s = esp_camera_sensor_get();
-
-    // 자동 제어 (기본 On 권장)
-    s->set_whitebal(s, 1);      // AWB
-    s->set_exposure_ctrl(s, 1); // AEC
-    s->set_gain_ctrl(s, 1);     // AGC
-    s->set_ae_level(s, -1);
-    s->set_gainceiling(s, GAINCEILING_16X);
-    s->set_aec2(s, 1);
-
-    // 렌즈/픽셀 보정 (체감효과 큼)
-    s->set_lenc(s, 1); // Lens correction(비네팅 완화)
-    s->set_bpc(s, 1);  // Bad Pixel Correction
-    s->set_wpc(s, 1);  // White Pixel Correction
-
-    // 톤/선명도 (상황 맞춰 살짝)
-    s->set_brightness(s, 0); // -2~2
-    s->set_contrast(s, 1);   // -2~2 (텍스트 대비↑에 도움)
-    s->set_saturation(s, 0); // -2~2
-    s->set_whitebal(s, 0);
-    // (센서에 따라 지원될 때만)
-    if (s->set_sharpness)
-        s->set_sharpness(s, 2); // -2~2
-}
-#endif
+static const char *WifiConfigTag = "Wifi_config";
+static const char *arpTag = "ARP";
+char url[128] = "http://192.168.1.51:5000/upload/"; // 서버 접속 URL
 
 // 통신 설정
 const uart_config_t uart_config = {
@@ -133,38 +54,105 @@ const uart_config_t uart_config = {
     .flow_ctrl = UART_HW_FLOWCTRL_DISABLE,
 };
 
-// 타이머 설정
-const ledc_timer_config_t ledc_timer = {
-    .speed_mode = LEDC_LOW_SPEED_MODE,
-    .duty_resolution = LEDC_TIMER_13_BIT,
-    .timer_num = LEDC_TIMER_1,
-    .freq_hz = 5000,
-    .clk_cfg = LEDC_AUTO_CLK,
-};
-
-// 채널 설정
-const ledc_channel_config_t ledc_channel = {
-    .gpio_num = FLASH_PIN,
-    .speed_mode = LEDC_LOW_SPEED_MODE,
-    .channel = LEDC_CHANNEL_1,
-    .intr_type = LEDC_INTR_DISABLE,
-    .timer_sel = LEDC_TIMER_1,
-    .duty = 0,
-    .hpoint = 0,
-};
-
-// 카메라 초기화
-static esp_err_t init_camera(void)
+// 네트워크 핸들러
+static void wifi_event_handler(void *handler_arg, esp_event_base_t base, int32_t event_id, void *event_data)
 {
-    esp_err_t err = esp_camera_init(&camera_config); // 설정값 넘기고 상태 받음
-
-    if (err != ESP_OK)
+    if (base == WIFI_EVENT)
     {
-        ESP_LOGE(captureTag, "카메라 초기화 실패");
-        return err;
-    }
+        switch (event_id)
+        {
+        case WIFI_EVENT_STA_START:
+            ESP_LOGI(WifiConfigTag, "STA시작 -> AP접속 시도");
+            esp_wifi_connect();
+            break;
 
-    return ESP_OK;
+        case WIFI_EVENT_STA_CONNECTED:
+        {
+            wifi_event_sta_connected_t *e = (wifi_event_sta_connected_t *)event_data;
+            ESP_LOGI(WifiConfigTag, "AP연결됨 : ssid : %s, channel : %d", (char *)e->ssid, e->channel);
+            xEventGroupSetBits(s_wifi_evt, WIFI_CONNECTED_BIT);
+            break;
+        }
+
+        case WIFI_EVENT_STA_DISCONNECTED:
+        {
+            wifi_event_sta_disconnected_t *e = (wifi_event_sta_disconnected_t *)event_data;
+            ESP_LOGE(WifiConfigTag, "AP연결 해제 :(해제 이유 : %d)", e->reason);
+            xEventGroupClearBits(s_wifi_evt, WIFI_CONNECTED_BIT | WIFI_GOTIP_BIT); // 두 비트 모두 연결 없음으로 클리어
+            esp_wifi_connect();
+            break;
+        }
+
+        case WIFI_EVENT_AP_START:
+            ESP_LOGI(WifiConfigTag, "SoftAP 시작");
+            break;
+
+        case WIFI_EVENT_AP_STACONNECTED:
+        {
+            wifi_event_ap_staconnected_t *e = (wifi_event_ap_staconnected_t *)event_data;
+            ESP_LOGI(WifiConfigTag, "클라이언트 접속 :" MACSTR ", AID = %d", MAC2STR(e->mac), e->aid);
+            break;
+        }
+
+        case WIFI_EVENT_AP_STADISCONNECTED:
+        {
+            wifi_event_ap_stadisconnected_t *e = (wifi_event_ap_stadisconnected_t *)event_data;
+            ESP_LOGI(WifiConfigTag, "클라이언트 해제: " MACSTR ", AID=%d", MAC2STR(e->mac), e->aid);
+            break;
+        }
+        }
+    }
+    else if (base == IP_EVENT)
+    {
+        switch (event_id)
+        {
+        case IP_EVENT_STA_GOT_IP:
+        {
+            ip_event_got_ip_t *e = (ip_event_got_ip_t *)event_data;
+            ESP_LOGI(WifiConfigTag, "IP : " IPSTR, IP2STR(&e->ip_info.ip));
+            xEventGroupSetBits(s_wifi_evt, WIFI_GOTIP_BIT);
+            break;
+        }
+
+        case IP_EVENT_STA_LOST_IP:
+            ESP_LOGI(WifiConfigTag, "IP손실");
+            xEventGroupClearBits(s_wifi_evt, WIFI_GOTIP_BIT);
+            break;
+        }
+    }
+}
+
+// 와이파이 초기화
+static void wifi_init(void)
+{
+    s_wifi_evt = xEventGroupCreate();
+    ESP_ERROR_CHECK(nvs_flash_init());                // nvs 초기화 (Wi-Fi 설정을 저장)
+    ESP_ERROR_CHECK(esp_netif_init());                // TCP/IP 네트워크 인터페이스 초기화 (lwIP 스택 준비)
+    ESP_ERROR_CHECK(esp_event_loop_create_default()); // 이벤트 루프를 만들고 Wi-Fi 핸들러를 위해 준비
+
+    esp_netif_create_default_wifi_sta(); // 기본 Wi-Fi STA 인터페이스 생성
+
+    wifi_init_config_t wifi_init_config = WIFI_INIT_CONFIG_DEFAULT(); // Wi-Fi 드라이버 초기화 (기본 설정으로 초기화)
+    ESP_ERROR_CHECK(esp_wifi_init(&wifi_init_config));
+
+    // 이벤트 핸들러
+    ESP_ERROR_CHECK(esp_event_handler_instance_register(WIFI_EVENT, ESP_EVENT_ANY_ID, &wifi_event_handler, NULL, NULL)); // 모든 Wi-Fi 이벤트 처리
+    // 현재 핸들러에서 (IP_EVENT_STA_GOT_IP)를 처리하는 부분이 없음 사용 고려
+    ESP_ERROR_CHECK(esp_event_handler_instance_register(IP_EVENT, IP_EVENT_STA_GOT_IP, &wifi_event_handler, NULL, NULL)); // IP 획득 이벤트 처리
+
+    wifi_config_t wifi_config = {
+        .sta = {
+            .ssid = "ORBI96",
+            .password = "moderncurtain551",
+            .threshold.authmode = WIFI_AUTH_WPA2_PSK, // 연결할 AP의 최소 인증 방식 지정
+        },
+    };
+
+    ESP_ERROR_CHECK(esp_wifi_set_mode(WIFI_MODE_STA));               // STA 모드로 설정
+    ESP_ERROR_CHECK(esp_wifi_set_config(WIFI_IF_STA, &wifi_config)); // SSID/PASS 설정 적용
+    ESP_ERROR_CHECK(esp_wifi_start());                               // Wi-Fi 연결
+
+    ESP_LOGI(WifiConfigTag, "wifi_init finished. SSID:%s password:%s", wifi_config.sta.ssid, wifi_config.sta.password);
 }
 
 void app_main(void)
@@ -174,19 +162,8 @@ void app_main(void)
     uart_driver_install(UART_NUM_0, BUF_SIZE, 0, 0, NULL, 0);
     uart_set_pin(UART_NUM_0, UART_PIN_NO_CHANGE, UART_PIN_NO_CHANGE, UART_PIN_NO_CHANGE, UART_PIN_NO_CHANGE);
 
-    // GPIO 설정
-    gpio_pad_select_gpio(FLASH_PIN);
-    gpio_set_direction(FLASH_PIN, GPIO_MODE_OUTPUT);
-
-    // ledc timer 설정
-    esp_err_t ret = ledc_timer_config(&ledc_timer);
-    if (ret != ESP_OK)
-        ESP_LOGE(flashTimerTag, "ERROR : %d", ret);
-
-    // ledc channel 설정
-    ret = ledc_channel_config(&ledc_channel);
-    if (ret != ESP_OK)
-        ESP_LOGE(flashChannelTag, "ERROR : %d", ret);
+    // wifi 초기화
+    wifi_init();
 
     uint8_t uart_buff[BUF_SIZE + 1] = {0};
 
@@ -210,21 +187,19 @@ void app_main(void)
 
             if (str[0] == '1')
             {
-                ESP_ERROR_CHECK(ledc_set_duty(LEDC_LOW_SPEED_MODE, LEDC_CHANNEL_1, 3500));
-                ESP_ERROR_CHECK(ledc_update_duty(LEDC_LOW_SPEED_MODE, LEDC_CHANNEL_1));
-                vTaskDelay(pdMS_TO_TICKS(50));
+                xEventGroupWaitBits(s_wifi_evt, WIFI_GOTIP_BIT, false, true, portMAX_DELAY);
 
-                camera_fb_t *pic = esp_camera_fb_get();
+                char resp[256];
+                int code = sendPhoto(url, resp, sizeof(resp));
 
-                ESP_ERROR_CHECK(ledc_set_duty(LEDC_LOW_SPEED_MODE, LEDC_CHANNEL_1, 0));
-                ESP_ERROR_CHECK(ledc_update_duty(LEDC_LOW_SPEED_MODE, LEDC_CHANNEL_1));
-
-                if (!pic)
+                if (code >= 200 && code < 300)
                 {
-                    ESP_LOGE(captureTag, "사진 촬영 실패");
+                    ESP_LOGI(arpTag, "업로드 성공 %d", code);
                 }
-
-                ESP_LOGI(captureTag, "사진이 찍혔습니다 ! / 사진 크기 : %zu", pic->len);
+                else
+                {
+                    ESP_LOGI(arpTag, "업로드 실패 %d", code);
+                }
             }
         }
         else
