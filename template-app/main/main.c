@@ -1,185 +1,215 @@
-#include <stdio.h> //표준 라이브러리
-#include <stdbool.h> //
-#include <unistd.h> //  POSIX 운영 체제 API에 대한 접근을 제공하는 파일
-#include "driver/uart.h" // 통신용 드라이버 인터페이스 정의
-#include "esp_log.h" // 로그 메시지 사용
-#include "hal/uart_types.h"
-#include <stdint.h> // 정확한 크기의 정수형 타입들을 정의
-#include "freertos/FreeRTOS.h" //RTOS 시간 적용
+#include <stdio.h>
+#include <string.h>
+#include <stdint.h>
+#include <cJSON.h>
+#include <sys/param.h>
+#include <nvs_flash.h>
+#include "unistd.h"
+
+#include "esp_log.h"
+#include "esp_system.h"
 #include "esp_err.h"
 #include "esp_camera.h"
-#include "esp_http_server.h" // http에 의존함
+#include "esp_wifi.h"
+#include "esp_event.h"
+#include "esp_mac.h"
+#include "esp_wps.h"
+#include "esp_http_client.h"
 
-esp_err_t camera_init(void);
-esp_err_t camera_capture(void);
-void process_image(int width, int height, int format, uint8_t *buf, size_t len);
-static esp_err_t post_handler(httpd_req_t *req);
+#include "driver/uart.h"
+#include "driver/ledc.h"
+#include "driver/gpio.h"
 
+#include "freertos/FreeRTOS.h"
+#include "freertos/task.h"
+#include "freertos/event_groups.h"
 
-#define BUF_SIZE 1024
-static httpd_handle_t server = NULL;
+#include "lwip/err.h"
+#include "lwip/sys.h"
 
+#include "soc/soc.h"
+#include "soc/rtc_cntl_reg.h"
 
-#define CAM_PIN_PWDN    -1
-#define CAM_PIN_RESET   -1
-#define CAM_PIN_XCLK    21
-#define CAM_PIN_SIOD    26
-#define CAM_PIN_SIOC    27
-#define CAM_PIN_D7      35
-#define CAM_PIN_D6      34
-#define CAM_PIN_D5      39
-#define CAM_PIN_D4      36
-#define CAM_PIN_D3      19
-#define CAM_PIN_D2      18
-#define CAM_PIN_D1       5
-#define CAM_PIN_D0       4
-#define CAM_PIN_VSYNC   25
-#define CAM_PIN_HREF    23
-#define CAM_PIN_PCLK    22
+#define BUF_SIZE 1024 // 입력 버퍼 사이즈
+#define FLASH_PIN 4   // Flash 핀 설정
 
-static const char *TAG = "camera_app";
+// 서버 통신 설정
+static EventGroupHandle_t s_wifi_evt; // 핸들의 이벤트를 담는 변수
 
-void app_main(void)
+#define WIFI_CONNECTED_BIT BIT0 // AP에 연결됨
+#define WIFI_GOTIP_BIT BIT1     // DHCP로 IP 획득
+
+// LOG용 TAG 모음
+// 다른 파일에서 접근 못하게 static으로 했는데 .. 파일이 하나야 ㅠㅠ
+static const char *WifiConfigTag = "Wifi_config";
+static const char *arpTag = "ARP";
+char url[128] = "http://192.168.1.51:5000/upload/"; // 서버 접속 URL
+
+// 통신 설정
+const uart_config_t uart_config = {
+    .baud_rate = 115200,
+    .data_bits = UART_DATA_8_BITS,
+    .parity = UART_PARITY_DISABLE,
+    .stop_bits = UART_STOP_BITS_1,
+    .flow_ctrl = UART_HW_FLOWCTRL_DISABLE,
+};
+
+// 네트워크 핸들러
+static void wifi_event_handler(void *handler_arg, esp_event_base_t base, int32_t event_id, void *event_data)
 {
-    uart_config_t uart_config = {
-		.baud_rate = 115200, // 통신 속도
-		.data_bits = UART_DATA_8_BITS, // 데이터 비트
- 		.parity = UART_PARITY_DISABLE, // 패리티 없음
-		.stop_bits = UART_STOP_BITS_1, // 정지 비트 1개
-		.flow_ctrl = UART_HW_FLOWCTRL_DISABLE, // 하드웨어 흐름 제어 비활성
-	};
-
-    uart_param_config(UART_NUM_0, &uart_config);
-    uart_driver_install(UART_NUM_0, BUF_SIZE * 2, 0, 0, NULL, 0);
-    uart_set_pin(UART_NUM_0, UART_PIN_NO_CHANGE, UART_PIN_NO_CHANGE, UART_PIN_NO_CHANGE, UART_PIN_NO_CHANGE);
-
-
-    uint8_t uart_buff[BUF_SIZE + 1] = { 0 }; // Unsigned char로 선언 8비트 정수
-
-    while (1) 
+    if (base == WIFI_EVENT)
     {
-        int len = uart_read_bytes(UART_NUM_0, uart_buff, BUF_SIZE, 100 / portTICK_PERIOD_MS);
+        switch (event_id)
+        {
+        case WIFI_EVENT_STA_START:
+            ESP_LOGI(WifiConfigTag, "STA시작 -> AP접속 시도");
+            esp_wifi_connect();
+            break;
 
-        if (len > 0 && len < BUF_SIZE)
-        {   
-            uart_buff[len] = '\0'; 
-            char *str = (char *)uart_buff; // 형변환이 필수
+        case WIFI_EVENT_STA_CONNECTED:
+        {
+            wifi_event_sta_connected_t *e = (wifi_event_sta_connected_t *)event_data;
+            ESP_LOGI(WifiConfigTag, "AP연결됨 : ssid : %s, channel : %d", (char *)e->ssid, e->channel);
+            xEventGroupSetBits(s_wifi_evt, WIFI_CONNECTED_BIT);
+            break;
+        }
 
-            printf("input : %s\r\n", str); // %s는 무조건 (char *) 타입만을 받음
+        case WIFI_EVENT_STA_DISCONNECTED:
+        {
+            wifi_event_sta_disconnected_t *e = (wifi_event_sta_disconnected_t *)event_data;
+            ESP_LOGE(WifiConfigTag, "AP연결 해제 :(해제 이유 : %d)", e->reason);
+            xEventGroupClearBits(s_wifi_evt, WIFI_CONNECTED_BIT | WIFI_GOTIP_BIT); // 두 비트 모두 연결 없음으로 클리어
+            esp_wifi_connect();
+            break;
+        }
+
+        case WIFI_EVENT_AP_START:
+            ESP_LOGI(WifiConfigTag, "SoftAP 시작");
+            break;
+
+        case WIFI_EVENT_AP_STACONNECTED:
+        {
+            wifi_event_ap_staconnected_t *e = (wifi_event_ap_staconnected_t *)event_data;
+            ESP_LOGI(WifiConfigTag, "클라이언트 접속 :" MACSTR ", AID = %d", MAC2STR(e->mac), e->aid);
+            break;
+        }
+
+        case WIFI_EVENT_AP_STADISCONNECTED:
+        {
+            wifi_event_ap_stadisconnected_t *e = (wifi_event_ap_stadisconnected_t *)event_data;
+            ESP_LOGI(WifiConfigTag, "클라이언트 해제: " MACSTR ", AID=%d", MAC2STR(e->mac), e->aid);
+            break;
+        }
+        }
+    }
+    else if (base == IP_EVENT)
+    {
+        switch (event_id)
+        {
+        case IP_EVENT_STA_GOT_IP:
+        {
+            ip_event_got_ip_t *e = (ip_event_got_ip_t *)event_data;
+            ESP_LOGI(WifiConfigTag, "IP : " IPSTR, IP2STR(&e->ip_info.ip));
+            xEventGroupSetBits(s_wifi_evt, WIFI_GOTIP_BIT);
+            break;
+        }
+
+        case IP_EVENT_STA_LOST_IP:
+            ESP_LOGI(WifiConfigTag, "IP손실");
+            xEventGroupClearBits(s_wifi_evt, WIFI_GOTIP_BIT);
+            break;
         }
     }
 }
 
-static camera_config_t camera_config = {
-    .pin_pwdn = CAM_PIN_PWDN,
-    .pin_reset = CAM_PIN_RESET,
-    .pin_xclk = CAM_PIN_XCLK,
-    .pin_sccb_sda = CAM_PIN_SIOD,
-    .pin_sccb_scl = CAM_PIN_SIOC,
-
-    .pin_d7 = CAM_PIN_D7,
-    .pin_d6 = CAM_PIN_D6,
-    .pin_d5 = CAM_PIN_D5,
-    .pin_d4 = CAM_PIN_D4,
-    .pin_d3 = CAM_PIN_D3,
-    .pin_d2 = CAM_PIN_D2,
-    .pin_d1 = CAM_PIN_D1,
-    .pin_d0 = CAM_PIN_D0,
-
-    .pin_vsync = CAM_PIN_VSYNC,
-    .pin_href = CAM_PIN_HREF,
-    .pin_pclk = CAM_PIN_PCLK,
-
-    .xclk_freq_hz = 20000000,
-    .ledc_timer = LEDC_TIMER_0,
-    .ledc_channel = LEDC_CHANNEL_0,
-
-    .pixel_format = PIXFORMAT_JPEG,
-    .frame_size = FRAMESIZE_UXGA,
-
-    .jpeg_quality = 12,
-    .fb_count = 1,
-    .grab_mode = CAMERA_GRAB_WHEN_EMPTY,
-};
-
-esp_err_t camera_init(void) // 카메라 연결 & 초기화 함수
+// 와이파이 초기화
+static void wifi_init(void)
 {
-    esp_err_t err = esp_camera_init(&camera_config); //esp_err_t 는 32비트 정수형 자료 초기화 성공시 0, 실패시 음수 or 에러코드
-    if (err != ESP_OK) { // 연결 성공시 0 ESP_OK(0)과 다를 경우 실패 문구 출력
-        ESP_LOGE(TAG, "Camera init failed with error 0x%x", err);
-        // ESP_LOGE로 로그를 출력한다, TAG로 오류 출처를 문자열 상수로 나타냄
-        return err;
-    }
-    ESP_LOGI(TAG, "Camera init successful"); // 성공 TAG 출력
-    return ESP_OK;
+    s_wifi_evt = xEventGroupCreate();
+    ESP_ERROR_CHECK(nvs_flash_init());                // nvs 초기화 (Wi-Fi 설정을 저장)
+    ESP_ERROR_CHECK(esp_netif_init());                // TCP/IP 네트워크 인터페이스 초기화 (lwIP 스택 준비)
+    ESP_ERROR_CHECK(esp_event_loop_create_default()); // 이벤트 루프를 만들고 Wi-Fi 핸들러를 위해 준비
+
+    esp_netif_create_default_wifi_sta(); // 기본 Wi-Fi STA 인터페이스 생성
+
+    wifi_init_config_t wifi_init_config = WIFI_INIT_CONFIG_DEFAULT(); // Wi-Fi 드라이버 초기화 (기본 설정으로 초기화)
+    ESP_ERROR_CHECK(esp_wifi_init(&wifi_init_config));
+
+    // 이벤트 핸들러
+    ESP_ERROR_CHECK(esp_event_handler_instance_register(WIFI_EVENT, ESP_EVENT_ANY_ID, &wifi_event_handler, NULL, NULL)); // 모든 Wi-Fi 이벤트 처리
+    // 현재 핸들러에서 (IP_EVENT_STA_GOT_IP)를 처리하는 부분이 없음 사용 고려
+    ESP_ERROR_CHECK(esp_event_handler_instance_register(IP_EVENT, IP_EVENT_STA_GOT_IP, &wifi_event_handler, NULL, NULL)); // IP 획득 이벤트 처리
+
+    wifi_config_t wifi_config = {
+        .sta = {
+            .ssid = "ORBI96",
+            .password = "moderncurtain551",
+            .threshold.authmode = WIFI_AUTH_WPA2_PSK, // 연결할 AP의 최소 인증 방식 지정
+        },
+    };
+
+    ESP_ERROR_CHECK(esp_wifi_set_mode(WIFI_MODE_STA));               // STA 모드로 설정
+    ESP_ERROR_CHECK(esp_wifi_set_config(WIFI_IF_STA, &wifi_config)); // SSID/PASS 설정 적용
+    ESP_ERROR_CHECK(esp_wifi_start());                               // Wi-Fi 연결
+
+    ESP_LOGI(WifiConfigTag, "wifi_init finished. SSID:%s password:%s", wifi_config.sta.ssid, wifi_config.sta.password);
 }
 
-esp_err_t camera_capture(void) // CAM 화면 캡쳐
+void app_main(void)
 {
-    camera_fb_t *fb = esp_camera_fb_get();
-    // camera_fb_t 는 카메라 프레임 버퍼 구조체이다, 프레임을 담고 있는 구조체 주소를 반환함
-    // 이미지 데이터를 담는 버퍼 포인터, 버퍼의 길이, 가로 해상도, 세로 해상도, 픽셀 포맷, 캡쳐 시간 정보 등을 포함한다
-    if (!fb) { // fb가 NULL 이라면 그 반대인 true가 되어 다음 코드가 실행됨
-        ESP_LOGE(TAG, "Camera capture failed");
-        return ESP_FAIL;
+    // 기본 Uart 통신 설정
+    uart_param_config(UART_NUM_0, &uart_config);
+    uart_driver_install(UART_NUM_0, BUF_SIZE, 0, 0, NULL, 0);
+    uart_set_pin(UART_NUM_0, UART_PIN_NO_CHANGE, UART_PIN_NO_CHANGE, UART_PIN_NO_CHANGE, UART_PIN_NO_CHANGE);
+
+    // wifi 초기화
+    wifi_init();
+
+    uint8_t uart_buff[BUF_SIZE + 1] = {0};
+
+#if ESP_CAMERA_SUPPORTED // 판 맵 설정이 ESP_CAMERA_SUPPORTED라면 실행
+    if (ESP_OK != init_camera())
+    {
+        return;
     }
-    
-    // 캡쳐가 성공되었다면?
-    process_image(fb->width, fb->height, fb->format, fb->buf, fb->len);
+    tune_sensor_for_quality();
 
-    esp_camera_fb_return(fb);
-    // 카메라 프레임 버퍼를 반환함
-    // 반환하지 않는다면 다음에 메모리가 부족할 수 있음
+    while (1)
+    {
+        // Flash 코드
+        int len = uart_read_bytes(UART_NUM_0, uart_buff, BUF_SIZE, 100 / portTICK_PERIOD_MS);
 
-    return ESP_OK;
-}
+        if (len > 0 && len < BUF_SIZE)
+        {
+            uart_buff[len] = '\0';
+            char *str = (char *)uart_buff;
+            printf("input : {%s}\n", str);
 
-// size_t 메모리나 배열을 관리하는 부호 없는 정수형 타입
-// 임베디드에서의 format은 데이터가 저장되거나 표현되는 방식
-void process_image(int width, int height, int format, uint8_t *buf, size_t len) {
-    printf("Image captured: %dx%d, len: %d, format: %d\n", width, height, (int)len, format);
+            if (str[0] == '1')
+            {
+                xEventGroupWaitBits(s_wifi_evt, WIFI_GOTIP_BIT, false, true, portMAX_DELAY);
 
-    uart_read_bytes(UART_NUM_0, (const char*)buf, len, 100 / portTICK_PERIOD_MS);
-    
-}
+                char resp[256];
+                int code = sendPhoto(url, resp, sizeof(resp));
 
-// HTTP POST요청에 따라 사진을 찍고 JPEG이미지로 응답을 보내는 함수
-static esp_err_t post_handler(httpd_req_t *req) { // 구조체 정보를 받아옴 (ex, 사용자 요청, 세션)
-    camera_fb_t *fb = esp_camera_fb_get(); // 카메라 정보 받아옴 성공시 주소 반환 
-
-    if (!fb) { // 실패시 NULL, !(NULL)이므로 연결 실패시 오류 문구
-        httpd_resp_send_err(req, HTTPD_500_INTERNAL_SERVER_ERROR, "Camera capture failed...");
-        // HTTP 오류 응답을 보내기 위함, 서버 내부 문제 로그와 함께 멘트 출력   
-        // req로 구조체 정보를 넘김 (ex, 요청자, 세션 정보)
-        return ESP_FAIL; // 오류 로그 출력
+                if (code >= 200 && code < 300)
+                {
+                    ESP_LOGI(arpTag, "업로드 성공 %d", code);
+                }
+                else
+                {
+                    ESP_LOGI(arpTag, "업로드 실패 %d", code);
+                }
+            }
+        }
+        else
+        {
+            uart_buff[BUF_SIZE] = '\0';
+        }
     }
-
-    httpd_resp_set_type(req, "image/jpeg"); // 이미지의 콘텐츠 유형을 설정함 (응답되는 요청, 응답의 콘텐츠 유행);
-    httpd_resp_set_hdr(req, "Content-Disposition", "inline; filename=capture.jpg"); // 다운로드 제어, 보안 헤더 추가, 브라우저 내에서 직접 보여주며 파일 이름을 지정
-    httpd_resp_send(req, (const char *)fb->buf, fb->len); // 성공한 HTTP에 대한 응답을 보냄
-
-    esp_camera_fb_return(fb); // 카메라 프레임 반환
-    return ESP_OK; // 성공값 리턴
- }
-
-static const httpd_uri_t post_uri = { // 웹 서버에 등록되는 설정 값
-    .uri = "/post", // 클라이언트가 요청하는 경로
-    .method = HTTP_POST, // POST방식 요청만 처리함
-    // POST방식은 HTTP의 요청 방식중 하나로 데이터를 보낼 때 사용
-    .handler = post_handler, // 실제 실행할 함수
-    .user_ctx = NULL // 사용자 정의 데이터를 넘길 수 있음
-};
-
-void start_webserver(void) {
-    httpd_config_t config = HTTPD_DEFAULT_CONFIG(); // HTTP의 서버의 기본 설정을 채워주는 구조체
-    httpd_start(&server, &config); // HTTP 서버 핸들, 설정한 구조체 정보
-    httpd_register_uri_handler(server, &post_uri); // URI경로에 어떤 함수가 요청을 처리할지 등록
-    // post_uri에 정보들을 넣으며 설정 (ex: 붕어빵 틀에 크림을 넣을지, 팥을 넣을지)
 }
-
-// void app_main(void) {
-//     // wifi초기화 추가
-//     camera_init();
-//     start_webserver();
-//     ESP_LOGI(TAG, "HTTP server started. POST to /post to capture");
-// }
+// 보드 고려 조건문
+#else
+    ESP_LOGE(captureTag, "이 보드는 카메라 지원이 안됩니다 .");
+    return;
+#endif
