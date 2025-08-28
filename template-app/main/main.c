@@ -1,185 +1,594 @@
-#include <stdio.h> //표준 라이브러리
-#include <stdbool.h> //
-#include <unistd.h> //  POSIX 운영 체제 API에 대한 접근을 제공하는 파일
-#include "driver/uart.h" // 통신용 드라이버 인터페이스 정의
-#include "esp_log.h" // 로그 메시지 사용
-#include "hal/uart_types.h"
-#include <stdint.h> // 정확한 크기의 정수형 타입들을 정의
-#include "freertos/FreeRTOS.h" //RTOS 시간 적용
-#include "esp_err.h"
+#include <stdio.h>
+#include "freertos/FreeRTOS.h"
+#include "freertos/task.h"
+#include "driver/gpio.h"
+#include "driver/adc.h"
 #include "esp_camera.h"
-#include "esp_http_server.h" // http에 의존함
+#include "esp_log.h"
+#include "nvs_flash.h"
+#include "esp_wifi.h"
+#include "esp_http_client.h"
+#include "ssd1351.h" // OLED 디스플레이 드라이버
 
-esp_err_t camera_init(void);
-esp_err_t camera_capture(void);
-void process_image(int width, int height, int format, uint8_t *buf, size_t len);
-static esp_err_t post_handler(httpd_req_t *req);
+#define BUF_SIZE 1024 // 입력 버퍼 사이즈
+#define FLASH_PIN 4   // Flash 핀 설정
 
+#define MAX_JSON_BODY (16 * 2024) // 서버 응답 메시지 제한
 
-#define BUF_SIZE 1024
-static httpd_handle_t server = NULL;
+// 서버 통신 설정
+static EventGroupHandle_t s_wifi_evt; // 핸들의 이벤트를 담는 변수
 
+#define WIFI_CONNECTED_BIT BIT0  // AP에 연결됨
+#define WIFI_GOTIP_BIT BIT1      // DHCP로 IP 획득
+#define BOARD_ESP32CAM_AITHINKER // 해당 핀맵을 사용한다고 선언
 
-#define CAM_PIN_PWDN    -1
-#define CAM_PIN_RESET   -1
-#define CAM_PIN_XCLK    21
-#define CAM_PIN_SIOD    26
-#define CAM_PIN_SIOC    27
-#define CAM_PIN_D7      35
-#define CAM_PIN_D6      34
-#define CAM_PIN_D5      39
-#define CAM_PIN_D4      36
-#define CAM_PIN_D3      19
-#define CAM_PIN_D2      18
-#define CAM_PIN_D1       5
-#define CAM_PIN_D0       4
-#define CAM_PIN_VSYNC   25
-#define CAM_PIN_HREF    23
-#define CAM_PIN_PCLK    22
+// 카메라 초기화 핀맵 (ESP32-CAM)
+#ifdef BOARD_ESP32CAM_AITHINKER
+#define PWDN_GPIO_NUM 32
+#define RESET_GPIO_NUM -1
+#define XCLK_GPIO_NUM 0
+#define SIOD_GPIO_NUM 26
+#define SIOC_GPIO_NUM 27
 
-static const char *TAG = "camera_app";
+#define Y9_GPIO_NUM 35
+#define Y8_GPIO_NUM 34
+#define Y7_GPIO_NUM 39
+#define Y6_GPIO_NUM 36
+#define Y5_GPIO_NUM 21
+#define Y4_GPIO_NUM 19
+#define Y3_GPIO_NUM 18
+#define Y2_GPIO_NUM 5
+#define VSYNC_GPIO_NUM 25
+#define HREF_GPIO_NUM 23
+#define PCLK_GPIO_NUM 22
+#endif
 
-void app_main(void)
+// LOG용 TAG 모음
+static const char *captureTag = "Take_Capture";
+static const char *flashTimerTag = "Flash_Timer";
+static const char *flashChannelTag = "Flash_Channel";
+static const char *WifiConfigTag = "Wifi_config";
+static const char *arpTag = "ARP";
+static const char *sendPhotoTag = "Send_Photo";
+static const char *cJsonParsingTag = "cJsonParsing";
+
+// 네트워크 ID, Password
+const char *ssid = "KT_GIGA_5G_6F98";
+const char *password = "4dc00gk820";
+
+char *cJsonBuffer;                                  // cJson 파싱 값 저장 버퍼
+char url[128] = "http://192.168.1.51:5000/upload/"; // 서버 접속 URL
+
+// 카메라 설정
+#if ESP_CAMERA_SUPPORTED
+static camera_config_t camera_config = {
+    .pin_pwdn = PWDN_GPIO_NUM,
+    .pin_reset = RESET_GPIO_NUM,
+    .pin_xclk = XCLK_GPIO_NUM,
+    .pin_sccb_sda = SIOD_GPIO_NUM,
+    .pin_sccb_scl = SIOC_GPIO_NUM,
+
+    .pin_d7 = Y9_GPIO_NUM,
+    .pin_d6 = Y8_GPIO_NUM,
+    .pin_d5 = Y7_GPIO_NUM,
+    .pin_d4 = Y6_GPIO_NUM,
+    .pin_d3 = Y5_GPIO_NUM,
+    .pin_d2 = Y4_GPIO_NUM,
+    .pin_d1 = Y3_GPIO_NUM,
+    .pin_d0 = Y2_GPIO_NUM,
+    .pin_vsync = VSYNC_GPIO_NUM,
+    .pin_href = HREF_GPIO_NUM,
+    .pin_pclk = PCLK_GPIO_NUM,
+
+    .xclk_freq_hz = 20000000, // 20 MHz
+    .ledc_timer = LEDC_TIMER_0,
+    .ledc_channel = LEDC_CHANNEL_0,
+    .pixel_format = PIXFORMAT_JPEG, // 웹스트리밍/스냅샷 용
+    .frame_size = FRAMESIZE_SVGA,   // SVGA, XGA
+    .jpeg_quality = 10,             // 0(최고)~63(최저)
+    .fb_count = 2,                  // 더 크게 하면 프레임 안정 (2가 빨랐음)
+    .grab_mode = CAMERA_GRAB_LATEST,
+    .fb_location = CAMERA_FB_IN_PSRAM,
+};
+
+void tune_sensor_for_quality(void)
 {
-    uart_config_t uart_config = {
-		.baud_rate = 115200, // 통신 속도
-		.data_bits = UART_DATA_8_BITS, // 데이터 비트
- 		.parity = UART_PARITY_DISABLE, // 패리티 없음
-		.stop_bits = UART_STOP_BITS_1, // 정지 비트 1개
-		.flow_ctrl = UART_HW_FLOWCTRL_DISABLE, // 하드웨어 흐름 제어 비활성
-	};
+    sensor_t *s = esp_camera_sensor_get();
 
-    uart_param_config(UART_NUM_0, &uart_config);
-    uart_driver_install(UART_NUM_0, BUF_SIZE * 2, 0, 0, NULL, 0);
-    uart_set_pin(UART_NUM_0, UART_PIN_NO_CHANGE, UART_PIN_NO_CHANGE, UART_PIN_NO_CHANGE, UART_PIN_NO_CHANGE);
+    // 자동 제어 (기본 On 권장)
+    s->set_whitebal(s, 1);      // AWB
+    s->set_exposure_ctrl(s, 1); // AEC
+    s->set_gain_ctrl(s, 1);     // AGC
+    s->set_ae_level(s, -1);
+    s->set_gainceiling(s, GAINCEILING_16X);
+    s->set_aec2(s, 1);
 
+    // 렌즈/픽셀 보정 (체감효과 큼)
+    s->set_lenc(s, 1); // Lens correction(비네팅 완화)
+    s->set_bpc(s, 1);  // Bad Pixel Correction
+    s->set_wpc(s, 1);  // White Pixel Correction
 
-    uint8_t uart_buff[BUF_SIZE + 1] = { 0 }; // Unsigned char로 선언 8비트 정수
+    // 톤/선명도 (상황 맞춰 살짝)
+    s->set_brightness(s, 0); // -2~2
+    s->set_contrast(s, 1);   // -2~2 (텍스트 대비↑에 도움)
+    s->set_saturation(s, 0); // -2~2
+    s->set_whitebal(s, 0);
+    // (센서에 따라 지원될 때만)
+    if (s->set_sharpness)
+        s->set_sharpness(s, 2); // -2~2
+}
+#endif
 
-    while (1) 
+// 통신 설정
+const uart_config_t uart_config = {
+    .baud_rate = 115200,
+    .data_bits = UART_DATA_8_BITS,
+    .parity = UART_PARITY_DISABLE,
+    .stop_bits = UART_STOP_BITS_1,
+    .flow_ctrl = UART_HW_FLOWCTRL_DISABLE,
+};
+
+// 타이머 설정
+const ledc_timer_config_t ledc_timer = {
+    .speed_mode = LEDC_LOW_SPEED_MODE,
+    .duty_resolution = LEDC_TIMER_13_BIT,
+    .timer_num = LEDC_TIMER_1,
+    .freq_hz = 5000,
+    .clk_cfg = LEDC_AUTO_CLK,
+};
+
+// 채널 설정
+const ledc_channel_config_t ledc_channel = {
+    .gpio_num = FLASH_PIN,
+    .speed_mode = LEDC_LOW_SPEED_MODE,
+    .channel = LEDC_CHANNEL_1,
+    .intr_type = LEDC_INTR_DISABLE,
+    .timer_sel = LEDC_TIMER_1,
+    .duty = 0,
+    .hpoint = 0,
+};
+
+// 카메라 초기화
+esp_err_t init_camera(void)
+{
+    esp_err_t err = esp_camera_init(&camera_config); // 설정값 넘기고 상태 받음
+
+    if (err != ESP_OK)
     {
-        int len = uart_read_bytes(UART_NUM_0, uart_buff, BUF_SIZE, 100 / portTICK_PERIOD_MS);
+        ESP_LOGE(captureTag, "카메라 초기화 실패");
+        return err;
+    }
 
-        if (len > 0 && len < BUF_SIZE)
-        {   
-            uart_buff[len] = '\0'; 
-            char *str = (char *)uart_buff; // 형변환이 필수
+    return ESP_OK;
+}
 
-            printf("input : %s\r\n", str); // %s는 무조건 (char *) 타입만을 받음
+// 네트워크 핸들러
+void wifi_event_handler(void *handler_arg, esp_event_base_t base, int32_t event_id, void *event_data)
+{
+    if (base == WIFI_EVENT)
+    {
+        switch (event_id)
+        {
+        case WIFI_EVENT_STA_START:
+            ESP_LOGI(WifiConfigTag, "STA시작 -> AP접속 시도");
+            esp_wifi_connect();
+            break;
+
+        case WIFI_EVENT_STA_CONNECTED:
+        {
+            wifi_event_sta_connected_t *e = (wifi_event_sta_connected_t *)event_data;
+            ESP_LOGI(WifiConfigTag, "AP연결됨 : ssid : %s, channel : %d", (char *)e->ssid, e->channel);
+            xEventGroupSetBits(s_wifi_evt, WIFI_CONNECTED_BIT);
+            break;
+        }
+
+        case WIFI_EVENT_STA_DISCONNECTED:
+        {
+            wifi_event_sta_disconnected_t *e = (wifi_event_sta_disconnected_t *)event_data;
+            ESP_LOGE(WifiConfigTag, "AP연결 해제 :(해제 이유 : %d)", e->reason);
+            xEventGroupClearBits(s_wifi_evt, WIFI_CONNECTED_BIT | WIFI_GOTIP_BIT); // 두 비트 모두 연결 없음으로 클리어
+            esp_wifi_connect();
+            break;
+        }
+
+        case WIFI_EVENT_AP_START:
+            ESP_LOGI(WifiConfigTag, "SoftAP 시작");
+            break;
+
+        case WIFI_EVENT_AP_STACONNECTED:
+        {
+            wifi_event_ap_staconnected_t *e = (wifi_event_ap_staconnected_t *)event_data;
+            ESP_LOGI(WifiConfigTag, "클라이언트 접속 :" MACSTR ", AID = %d", MAC2STR(e->mac), e->aid);
+            break;
+        }
+
+        case WIFI_EVENT_AP_STADISCONNECTED:
+        {
+            wifi_event_ap_stadisconnected_t *e = (wifi_event_ap_stadisconnected_t *)event_data;
+            ESP_LOGI(WifiConfigTag, "클라이언트 해제: " MACSTR ", AID=%d", MAC2STR(e->mac), e->aid);
+            break;
+        }
+        }
+    }
+    else if (base == IP_EVENT)
+    {
+        switch (event_id)
+        {
+        case IP_EVENT_STA_GOT_IP:
+        {
+            ip_event_got_ip_t *e = (ip_event_got_ip_t *)event_data;
+            ESP_LOGI(WifiConfigTag, "IP : " IPSTR, IP2STR(&e->ip_info.ip));
+            xEventGroupSetBits(s_wifi_evt, WIFI_GOTIP_BIT);
+            break;
+        }
+
+        case IP_EVENT_STA_LOST_IP:
+            ESP_LOGI(WifiConfigTag, "IP손실");
+            xEventGroupClearBits(s_wifi_evt, WIFI_GOTIP_BIT);
+            break;
         }
     }
 }
 
-static camera_config_t camera_config = {
-    .pin_pwdn = CAM_PIN_PWDN,
-    .pin_reset = CAM_PIN_RESET,
-    .pin_xclk = CAM_PIN_XCLK,
-    .pin_sccb_sda = CAM_PIN_SIOD,
-    .pin_sccb_scl = CAM_PIN_SIOC,
-
-    .pin_d7 = CAM_PIN_D7,
-    .pin_d6 = CAM_PIN_D6,
-    .pin_d5 = CAM_PIN_D5,
-    .pin_d4 = CAM_PIN_D4,
-    .pin_d3 = CAM_PIN_D3,
-    .pin_d2 = CAM_PIN_D2,
-    .pin_d1 = CAM_PIN_D1,
-    .pin_d0 = CAM_PIN_D0,
-
-    .pin_vsync = CAM_PIN_VSYNC,
-    .pin_href = CAM_PIN_HREF,
-    .pin_pclk = CAM_PIN_PCLK,
-
-    .xclk_freq_hz = 20000000,
-    .ledc_timer = LEDC_TIMER_0,
-    .ledc_channel = LEDC_CHANNEL_0,
-
-    .pixel_format = PIXFORMAT_JPEG,
-    .frame_size = FRAMESIZE_UXGA,
-
-    .jpeg_quality = 12,
-    .fb_count = 1,
-    .grab_mode = CAMERA_GRAB_WHEN_EMPTY,
-};
-
-esp_err_t camera_init(void) // 카메라 연결 & 초기화 함수
+// 와이파이 초기화
+void wifi_init(void)
 {
-    esp_err_t err = esp_camera_init(&camera_config); //esp_err_t 는 32비트 정수형 자료 초기화 성공시 0, 실패시 음수 or 에러코드
-    if (err != ESP_OK) { // 연결 성공시 0 ESP_OK(0)과 다를 경우 실패 문구 출력
-        ESP_LOGE(TAG, "Camera init failed with error 0x%x", err);
-        // ESP_LOGE로 로그를 출력한다, TAG로 오류 출처를 문자열 상수로 나타냄
-        return err;
-    }
-    ESP_LOGI(TAG, "Camera init successful"); // 성공 TAG 출력
-    return ESP_OK;
+    s_wifi_evt = xEventGroupCreate();
+    ESP_ERROR_CHECK(nvs_flash_init());                // nvs 초기화 (Wi-Fi 설정을 저장)
+    ESP_ERROR_CHECK(esp_netif_init());                // TCP/IP 네트워크 인터페이스 초기화 (lwIP 스택 준비)
+    ESP_ERROR_CHECK(esp_event_loop_create_default()); // 이벤트 루프를 만들고 Wi-Fi 핸들러를 위해 준비
+
+    esp_netif_create_default_wifi_sta(); // 기본 Wi-Fi STA 인터페이스 생성
+
+    wifi_init_config_t wifi_init_config = WIFI_INIT_CONFIG_DEFAULT(); // Wi-Fi 드라이버 초기화 (기본 설정으로 초기화)
+    ESP_ERROR_CHECK(esp_wifi_init(&wifi_init_config));
+
+    // 이벤트 핸들러
+    ESP_ERROR_CHECK(esp_event_handler_instance_register(WIFI_EVENT, ESP_EVENT_ANY_ID, &wifi_event_handler, NULL, NULL)); // 모든 Wi-Fi 이벤트 처리
+    // 현재 핸들러에서 (IP_EVENT_STA_GOT_IP)를 처리하는 부분이 없음 사용 고려
+    ESP_ERROR_CHECK(esp_event_handler_instance_register(IP_EVENT, IP_EVENT_STA_GOT_IP, &wifi_event_handler, NULL, NULL)); // IP 획득 이벤트 처리
+
+    wifi_config_t wifi_config = {
+        .sta = {
+            .ssid = "ORBI96",
+            .password = "moderncurtain551",
+            .threshold.authmode = WIFI_AUTH_WPA2_PSK, // 연결할 AP의 최소 인증 방식 지정
+        },
+    };
+
+    ESP_ERROR_CHECK(esp_wifi_set_mode(WIFI_MODE_STA));               // STA 모드로 설정
+    ESP_ERROR_CHECK(esp_wifi_set_config(WIFI_IF_STA, &wifi_config)); // SSID/PASS 설정 적용
+    ESP_ERROR_CHECK(esp_wifi_start());                               // Wi-Fi 연결
+
+    ESP_LOGI(WifiConfigTag, "wifi_init finished. SSID:%s password:%s", wifi_config.sta.ssid, wifi_config.sta.password);
 }
 
-esp_err_t camera_capture(void) // CAM 화면 캡쳐
+// 이미지 HTTP 전송
+int sendPhoto(const char *url, char *resp_buf, size_t resp_buf_sz)
 {
-    camera_fb_t *fb = esp_camera_fb_get();
-    // camera_fb_t 는 카메라 프레임 버퍼 구조체이다, 프레임을 담고 있는 구조체 주소를 반환함
-    // 이미지 데이터를 담는 버퍼 포인터, 버퍼의 길이, 가로 해상도, 세로 해상도, 픽셀 포맷, 캡쳐 시간 정보 등을 포함한다
-    if (!fb) { // fb가 NULL 이라면 그 반대인 true가 되어 다음 코드가 실행됨
-        ESP_LOGE(TAG, "Camera capture failed");
-        return ESP_FAIL;
-    }
-    
-    // 캡쳐가 성공되었다면?
-    process_image(fb->width, fb->height, fb->format, fb->buf, fb->len);
+    // 카메라 사진 촬영
+    ESP_ERROR_CHECK(ledc_set_duty(LEDC_LOW_SPEED_MODE, LEDC_CHANNEL_1, 3500));
+    ESP_ERROR_CHECK(ledc_update_duty(LEDC_LOW_SPEED_MODE, LEDC_CHANNEL_1));
+    vTaskDelay(pdMS_TO_TICKS(50));
 
-    esp_camera_fb_return(fb);
-    // 카메라 프레임 버퍼를 반환함
-    // 반환하지 않는다면 다음에 메모리가 부족할 수 있음
+    camera_fb_t *pic = esp_camera_fb_get();
 
-    return ESP_OK;
-}
+    ESP_ERROR_CHECK(ledc_set_duty(LEDC_LOW_SPEED_MODE, LEDC_CHANNEL_1, 0));
+    ESP_ERROR_CHECK(ledc_update_duty(LEDC_LOW_SPEED_MODE, LEDC_CHANNEL_1));
 
-// size_t 메모리나 배열을 관리하는 부호 없는 정수형 타입
-// 임베디드에서의 format은 데이터가 저장되거나 표현되는 방식
-void process_image(int width, int height, int format, uint8_t *buf, size_t len) {
-    printf("Image captured: %dx%d, len: %d, format: %d\n", width, height, (int)len, format);
-
-    uart_read_bytes(UART_NUM_0, (const char*)buf, len, 100 / portTICK_PERIOD_MS);
-    
-}
-
-// HTTP POST요청에 따라 사진을 찍고 JPEG이미지로 응답을 보내는 함수
-static esp_err_t post_handler(httpd_req_t *req) { // 구조체 정보를 받아옴 (ex, 사용자 요청, 세션)
-    camera_fb_t *fb = esp_camera_fb_get(); // 카메라 정보 받아옴 성공시 주소 반환 
-
-    if (!fb) { // 실패시 NULL, !(NULL)이므로 연결 실패시 오류 문구
-        httpd_resp_send_err(req, HTTPD_500_INTERNAL_SERVER_ERROR, "Camera capture failed...");
-        // HTTP 오류 응답을 보내기 위함, 서버 내부 문제 로그와 함께 멘트 출력   
-        // req로 구조체 정보를 넘김 (ex, 요청자, 세션 정보)
-        return ESP_FAIL; // 오류 로그 출력
+    if (!pic)
+    {
+        ESP_LOGE(captureTag, "사진 촬영 실패");
     }
 
-    httpd_resp_set_type(req, "image/jpeg"); // 이미지의 콘텐츠 유형을 설정함 (응답되는 요청, 응답의 콘텐츠 유행);
-    httpd_resp_set_hdr(req, "Content-Disposition", "inline; filename=capture.jpg"); // 다운로드 제어, 보안 헤더 추가, 브라우저 내에서 직접 보여주며 파일 이름을 지정
-    httpd_resp_send(req, (const char *)fb->buf, fb->len); // 성공한 HTTP에 대한 응답을 보냄
+    ESP_LOGI(captureTag, "사진이 찍혔습니다 ! / 사진 크기 : %zu", pic->len);
 
-    esp_camera_fb_return(fb); // 카메라 프레임 반환
-    return ESP_OK; // 성공값 리턴
- }
+    const char *boundary = "----ESP32CamBoundary1234"; // 멀티파트에서 각 파트를 구분하는 구분자 문자열
+    // 멀티파트의 앞 부분을 담음 (Boundary의 여러 정보들을 담으며 넉넉하게 확보)
+    char head[256];
+    // 멀티파트의 각 헤더로 서버가 읽을 필드명과 파일명을 지정함 (헤더와 바디 사이 빈 줄)
+    int head_len = snprintf(head, sizeof(head),
+                            "--%s\r\n"
+                            "Content-Disposition: form-data; name=\"image\"; filename=\"esp32-cam.jpg\"\r\n"
+                            "Content-Type: image/jpeg\r\n\r\n",
+                            boundary);
 
-static const httpd_uri_t post_uri = { // 웹 서버에 등록되는 설정 값
-    .uri = "/post", // 클라이언트가 요청하는 경로
-    .method = HTTP_POST, // POST방식 요청만 처리함
-    // POST방식은 HTTP의 요청 방식중 하나로 데이터를 보낼 때 사용
-    .handler = post_handler, // 실제 실행할 함수
-    .user_ctx = NULL // 사용자 정의 데이터를 넘길 수 있음
-};
+    // 멀티파이트를 닫는 부분이라 짧음 (넉넉하게 확보)
+    char tail[64];
+    int tail_len = snprintf(tail, sizeof(tail), "\r\n--%s--\r\n", boundary);
 
-void start_webserver(void) {
-    httpd_config_t config = HTTPD_DEFAULT_CONFIG(); // HTTP의 서버의 기본 설정을 채워주는 구조체
-    httpd_start(&server, &config); // HTTP 서버 핸들, 설정한 구조체 정보
-    httpd_register_uri_handler(server, &post_uri); // URI경로에 어떤 함수가 요청을 처리할지 등록
-    // post_uri에 정보들을 넣으며 설정 (ex: 붕어빵 틀에 크림을 넣을지, 팥을 넣을지)
+    if (head_len <= 0 || tail_len <= 0)
+    {
+        ESP_LOGE(sendPhotoTag, "snprintf 실패");
+        esp_camera_fb_return(pic);
+        return -2;
+    }
+
+    // 콘텐츠의 총 크기 (보내는 크기 + 사진 크기 + 보내기 종료 크기)
+    size_t content_len = (size_t)head_len + pic->len + (size_t)tail_len;
+
+    // HTTP 클라이언트 준비
+    esp_http_client_config_t cfg = {
+        .url = url,
+        .method = HTTP_METHOD_POST, // 전송 방식 (method에 POST)
+        .timeout_ms = 10000,        // waiting 시간
+    };
+
+    // HTTP Client 초기화
+    esp_http_client_handle_t client = esp_http_client_init(&cfg);
+    if (!client)
+    {
+        ESP_LOGI(sendPhotoTag, "http client초기화 실패");
+        esp_camera_fb_return(pic);
+        return -3;
+    }
+
+    // 헤더 설정
+    esp_http_client_set_method(client, HTTP_METHOD_POST);
+    char ctype[128]; // HTTP 헤더 Content-Type에 넣을 문자열 버퍼이다
+    // (결과 문자열을 쓸 목적지 버퍼, 버퍼의 최대 크기, 출력 템플릿)
+    snprintf(ctype, sizeof(ctype), "multipart/form-data; boundary=%s", boundary);
+
+    // 서버에게 (바디가 멀티파트임을 알림, 경계값 제공, Content-Type 헤더 값) 를 넘김
+    esp_http_client_set_header(client, "Content-Type", ctype);
+    esp_http_client_set_header(client, "Content-Length", NULL);
+
+    // 서버와 TCP 연결을 맺고, 요청 라인 헤더 정보들을 보낼 준비를 한다
+    esp_err_t err = esp_http_client_open(client, content_len);
+
+    if (err != ESP_OK)
+    {
+        ESP_LOGI(sendPhotoTag, "open 실패 %s", esp_err_to_name(err));
+        esp_http_client_cleanup(client); // 클라이언트 핸들 정리 (소켓 닫기, 내부 버퍼, 메모리 해제)
+        esp_camera_fb_return(pic);
+        return -4;
+    } // 헤더 설정 코드 주석 & 이해 필요한 것 정리
+
+    // 본문 스트리밍
+    int w = 0;
+    // 지정한 버퍼의 데이터를 len 바이트만큼 HTTP요청 body로 전송한다
+    w = esp_http_client_write(client, head, head_len);
+    if (w != head_len)
+    {
+        ESP_LOGE(sendPhotoTag, "헤드 write 실패");
+        goto WRITE_FAIL;
+    }
+
+    // JPEG 본문을 1024바이트씩 전송
+    const uint8_t *p = pic->buf;
+    size_t remain = pic->len;
+
+    while (remain > 0)
+    {
+        size_t chunk = (remain > 1024) ? 1024 : remain;
+        w = esp_http_client_write(client, (const char *)p, chunk);
+
+        if (w != (int)chunk)
+        {
+            ESP_LOGE(sendPhotoTag, "write jpeg 실패");
+            goto WRITE_FAIL;
+        }
+        p += chunk;      // 사진의 새로운 부분부터 보내야 하므로 이미 보낸 부분(chunk)를 제외
+        remain -= chunk; // 사진을 다(0) 보낼 때 까지 반복, 사진의 1024바이트씩 보냄
+    }
+
+    w = esp_http_client_write(client, tail, tail_len);
+    if (w != tail_len)
+    {
+        ESP_LOGE(sendPhotoTag, "write tail 실패");
+        goto WRITE_FAIL;
+    }
+
+    // 응답 상태 / 헤더 / 바디 읽기
+    int status = esp_http_client_fetch_headers(client);        // 헤더만 읽음, 에러 / 헤더 길이를 반환함
+    int http_status = esp_http_client_get_status_code(client); // HTTP 상태 코드 가져오기 (ex : 404, 200)
+
+    if (resp_buf && resp_buf_sz > 0) // 응답을 저장할 버퍼가 있고, 크기도 0보다 큰 경우
+    {
+        int total = 0;
+        while (1)
+        {
+            // 서버 응답을 읽는 함수로 resp_buf + total부터 내용을 채움, - 읽은 범위 - NULL문자
+            int r = esp_http_client_read(client, resp_buf + total, (int)resp_buf_sz - 1 - total);
+
+            // 더 이상 읽을 데이터가 없을 때
+            if (r <= 0)
+            {
+                break;
+            }
+            total += r;                           // r을 더해서 이미 읽은 부분은 제외
+            if ((size_t)total >= resp_buf_sz - 1) // 다 읽었으면 종료
+                break;
+        }
+        cJsonParsing(client);
+        resp_buf[total] = '\0';
+        ESP_LOGI(sendPhotoTag, "응답(%d) : %s", http_status, resp_buf);
+    }
+    else
+    {
+        ESP_LOGI(sendPhotoTag, "HTTP 상태 코드(%d)", status);
+    }
+
+    // 모든 설정 종료 후 HTTP 상태 코드 반환
+    esp_http_client_close(client);
+    esp_http_client_cleanup(client);
+    esp_camera_fb_return(pic);
+    return http_status;
+
+WRITE_FAIL: // 모든 설정들을 종료
+    esp_http_client_close(client);
+    esp_http_client_cleanup(client);
+    esp_camera_fb_return(pic);
+    return -5;
 }
 
-// void app_main(void) {
-//     // wifi초기화 추가
-//     camera_init();
-//     start_webserver();
-//     ESP_LOGI(TAG, "HTTP server started. POST to /post to capture");
-// }
+void cJsonParsing(esp_http_client_handle_t client) // client 핸들러 받아서 파싱 시작
+{
+    esp_err_t err = esp_http_client_perform(client);
+    char *buffer = NULL; // cJson 파싱 값이 저장되는 버퍼
+    int n = 0;
+
+    if (err == ESP_OK)
+    { // PRId64 = 64비트 정수 출력 서식 문자열
+        int64_t content_length = esp_http_client_get_content_length(client);
+        int status = esp_http_client_get_status_code(client);
+        int total_read = 0;
+        ESP_LOGI(cJsonParsingTag, "HTTP 상태 코드 : %d\n content_length : %" PRId64, status, content_length);
+
+        if (content_length > 0)
+        {
+            if (content_length > MAX_JSON_BODY)
+            {
+                ESP_LOGI(cJsonParsingTag, "파일의 크기가 너무 큽니다");
+                return;
+            }
+
+            else
+            {
+                buffer = malloc(content_length + 1);
+
+                if (!buffer)
+                {
+                    ESP_LOGI(cJsonParsingTag, "malloc 실패 : (% " PRId64 " 바이트)", content_length);
+                    return;
+                }
+
+                while (total_read < content_length)
+                {
+                    n = esp_http_client_read_response(client, buffer + total_read, content_length - total_read);
+
+                    if (n <= 0)
+                    {
+                        ESP_LOGE(cJsonParsingTag, "cJson 읽어들이기 실패 남은 content_length : %" PRId64, content_length);
+                        break;
+                    }
+                    total_read += n;
+                }
+
+                buffer[total_read] = 0;
+            }
+        }
+    }
+    else
+    {
+        ESP_LOGE(cJsonParsingTag, "HTTP 값 받기 실패 : %s", esp_err_to_name(err));
+        return;
+    }
+
+    cJSON *root = cJSON_Parse(buffer);
+
+    if (!root)
+    {
+        ESP_LOGI(cJsonParsingTag, "Json 파싱 실패");
+        free(buffer);
+        return;
+    }
+
+    else if (root)
+    {
+        cJSON *msg = cJSON_GetObjectItem(root, "message");
+        if (cJSON_IsString(msg) && msg->valuestring)
+        {
+            int value = atoi(msg->valuestring);
+            ESP_LOGI(cJsonParsingTag, "값 : %d", value);
+        }
+    }
+
+    cJSON_Delete(root);
+    free(buffer);
+}
+
+// oled 화면 갱신
+static void oled_update(void) {
+    ssd1351_clear();
+    char buf[64];
+
+
+    sprintf(buf, "페이지: %d", last_page);
+    ssd1351_draw_string(0, 0, buf, WHITE, BLACK);
+
+
+    sprintf(buf, "읽은시간: %d분", read_minutes);
+    ssd1351_draw_string(0, 16, buf, WHITE, BLACK);
+
+
+    int batt = read_battery_mv();
+    sprintf(buf, "배터리: %dmV", batt);
+    ssd1351_draw_string(0, 32, buf, WHITE, BLACK);
+}
+
+void app_main(void)
+{
+    // 기본 Uart 통신 설정
+    uart_param_config(UART_NUM_0, &uart_config);
+    uart_driver_install(UART_NUM_0, BUF_SIZE, 0, 0, NULL, 0);
+    uart_set_pin(UART_NUM_0, UART_PIN_NO_CHANGE, UART_PIN_NO_CHANGE, UART_PIN_NO_CHANGE, UART_PIN_NO_CHANGE);
+
+    // GPIO 설정
+    gpio_pad_select_gpio(FLASH_PIN);
+    gpio_set_direction(FLASH_PIN, GPIO_MODE_OUTPUT);
+
+    // ledc timer 설정
+    esp_err_t ret = ledc_timer_config(&ledc_timer);
+    if (ret != ESP_OK)
+        ESP_LOGE(flashTimerTag, "ERROR : %d", ret);
+
+    // ledc channel 설정
+    ret = ledc_channel_config(&ledc_channel);
+    if (ret != ESP_OK)
+        ESP_LOGE(flashChannelTag, "ERROR : %d", ret);
+
+    // wifi 초기화
+    wifi_init();
+
+    // oled 초기화
+    ssd1351_init();
+
+    uint8_t uart_buff[BUF_SIZE + 1] = {0};
+
+#if ESP_CAMERA_SUPPORTED // 판 맵 설정이 ESP_CAMERA_SUPPORTED라면 실행
+    if (ESP_OK != init_camera())
+    {
+        return;
+    }
+    tune_sensor_for_quality();
+
+    while (1)
+    {
+        // Flash 코드
+        int len = uart_read_bytes(UART_NUM_0, uart_buff, BUF_SIZE, 100 / portTICK_PERIOD_MS);
+
+        if (len > 0 && len < BUF_SIZE)
+        {
+            uart_buff[len] = '\0';
+            char *str = (char *)uart_buff;
+            printf("input : {%s}\n", str);
+
+            if (str[0] == '1')
+            {
+                xEventGroupWaitBits(s_wifi_evt, WIFI_GOTIP_BIT, false, true, portMAX_DELAY);
+
+                char resp[256];
+                int code = sendPhoto(url, resp, sizeof(resp));
+
+                if (code >= 200 && code < 300)
+                {
+                    ESP_LOGI(arpTag, "업로드 성공 %d", code);
+                }
+                else
+                {
+                    ESP_LOGI(arpTag, "업로드 실패 %d", code);
+                }
+            }
+        }
+        else
+        {
+            uart_buff[BUF_SIZE] = '\0';
+        }
+    }
+}
+// 보드 고려 조건문
+#else
+    ESP_LOGE(captureTag, "이 보드는 카메라 지원이 안됩니다 .");
+    return;
+#endif
