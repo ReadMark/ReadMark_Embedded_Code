@@ -1,34 +1,4 @@
-#include <stdio.h>
-#include <string.h>
-#include <stdint.h>
-#include <cJSON.h>
-#include <sys/param.h>
-#include <nvs_flash.h>
-#include "unistd.h"
-
-#include "esp_log.h"
-#include "esp_system.h"
-#include "esp_err.h"
-#include "esp_camera.h"
-#include "esp_wifi.h"
-#include "esp_event.h"
-#include "esp_mac.h"
-#include "esp_wps.h"
-#include "esp_http_client.h"
-
-#include "driver/uart.h"
-#include "driver/ledc.h"
-#include "driver/gpio.h"
-
-#include "freertos/FreeRTOS.h"
-#include "freertos/task.h"
-#include "freertos/event_groups.h"
-
-#include "lwip/err.h"
-#include "lwip/sys.h"
-
-#include "soc/soc.h"
-#include "soc/rtc_cntl_reg.h"
+#include "header.h"
 
 #define WIFI_CONNECTED_BIT BIT0 // AP에 연결됨
 #define WIFI_GOTIP_BIT BIT1     // DHCP로 IP 획득
@@ -111,7 +81,7 @@ static void wifi_event_handler(void *handler_arg, esp_event_base_t base, int32_t
 }
 
 // 와이파이 초기화
-static void wifi_init(void)
+void wifi_init(void)
 {
     s_wifi_evt = xEventGroupCreate();
     ESP_ERROR_CHECK(nvs_flash_init());                // nvs 초기화 (Wi-Fi 설정을 저장)

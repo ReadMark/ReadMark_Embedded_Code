@@ -1,34 +1,4 @@
-#include <stdio.h>
-#include <string.h>
-#include <stdint.h>
-#include <cJSON.h>
-#include <sys/param.h>
-#include <nvs_flash.h>
-#include "unistd.h"
-
-#include "esp_log.h"
-#include "esp_system.h"
-#include "esp_err.h"
-#include "esp_camera.h"
-#include "esp_wifi.h"
-#include "esp_event.h"
-#include "esp_mac.h"
-#include "esp_wps.h"
-#include "esp_http_client.h"
-
-#include "driver/uart.h"
-#include "driver/ledc.h"
-#include "driver/gpio.h"
-
-#include "freertos/FreeRTOS.h"
-#include "freertos/task.h"
-#include "freertos/event_groups.h"
-
-#include "lwip/err.h"
-#include "lwip/sys.h"
-
-#include "soc/soc.h"
-#include "soc/rtc_cntl_reg.h"
+#include "header.h"
 
 #define BUF_SIZE 1024 // 입력 버퍼 사이즈
 #define FLASH_PIN 4   // Flash 핀 설정
@@ -64,7 +34,6 @@ static EventGroupHandle_t s_wifi_evt; // 핸들의 이벤트를 담는 변수
 #endif
 
 // LOG용 TAG 모음
-// 다른 파일에서 접근 못하게 static으로 했는데 .. 파일이 하나야 ㅠㅠ
 static const char *captureTag = "Take_Capture";
 static const char *flashTimerTag = "Flash_Timer";
 static const char *flashChannelTag = "Flash_Channel";
@@ -79,13 +48,6 @@ const char *password = "moderncurtain551";
 
 char *cJsonBuffer;                                  // cJson 파싱 값 저장 버퍼
 char url[128] = "http://192.168.1.51:5000/upload/"; // 서버 접속 URL
-
-// 함수의 원형
-void cJsonParsing(esp_http_client_handle_t client);
-static esp_err_t init_camera(void);
-static void wifi_event_handler(void *handler_arg, esp_event_base_t base, int32_t event_id, void *event_data);
-static void wifi_init(void);
-int sendPhoto(const char *url, char *resp_buf, size_t resp_buf_sz);
 
 // 카메라 설정
 #if ESP_CAMERA_SUPPORTED
@@ -119,7 +81,7 @@ static camera_config_t camera_config = {
     .fb_location = CAMERA_FB_IN_PSRAM,
 };
 
-static void tune_sensor_for_quality(void)
+void tune_sensor_for_quality(void)
 {
     sensor_t *s = esp_camera_sensor_get();
 
@@ -177,7 +139,7 @@ const ledc_channel_config_t ledc_channel = {
 };
 
 // 카메라 초기화
-static esp_err_t init_camera(void)
+esp_err_t init_camera(void)
 {
     esp_err_t err = esp_camera_init(&camera_config); // 설정값 넘기고 상태 받음
 
@@ -191,7 +153,7 @@ static esp_err_t init_camera(void)
 }
 
 // 네트워크 핸들러
-static void wifi_event_handler(void *handler_arg, esp_event_base_t base, int32_t event_id, void *event_data)
+void wifi_event_handler(void *handler_arg, esp_event_base_t base, int32_t event_id, void *event_data)
 {
     if (base == WIFI_EVENT)
     {
@@ -259,7 +221,7 @@ static void wifi_event_handler(void *handler_arg, esp_event_base_t base, int32_t
 }
 
 // 와이파이 초기화
-static void wifi_init(void)
+void wifi_init(void)
 {
     s_wifi_evt = xEventGroupCreate();
     ESP_ERROR_CHECK(nvs_flash_init());                // nvs 초기화 (Wi-Fi 설정을 저장)

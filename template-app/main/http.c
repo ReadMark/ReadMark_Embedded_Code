@@ -1,34 +1,4 @@
-#include <stdio.h>
-#include <string.h>
-#include <stdint.h>
-#include <cJSON.h>
-#include <sys/param.h>
-#include <nvs_flash.h>
-#include "unistd.h"
-
-#include "esp_log.h"
-#include "esp_system.h"
-#include "esp_err.h"
-#include "esp_camera.h"
-#include "esp_wifi.h"
-#include "esp_event.h"
-#include "esp_mac.h"
-#include "esp_wps.h"
-#include "esp_http_client.h"
-
-#include "driver/uart.h"
-#include "driver/ledc.h"
-#include "driver/gpio.h"
-
-#include "freertos/FreeRTOS.h"
-#include "freertos/task.h"
-#include "freertos/event_groups.h"
-
-#include "lwip/err.h"
-#include "lwip/sys.h"
-
-#include "soc/soc.h"
-#include "soc/rtc_cntl_reg.h"
+#include "header.h"
 
 #define BUF_SIZE 1024             // 입력 버퍼 사이즈
 #define MAX_JSON_BODY (16 * 2024) // 서버 응답 메시지 제한

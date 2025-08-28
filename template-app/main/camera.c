@@ -1,34 +1,4 @@
-#include <stdio.h>
-#include <string.h>
-#include <stdint.h>
-#include <cJSON.h>
-#include <sys/param.h>
-#include <nvs_flash.h>
-#include "unistd.h"
-
-#include "esp_log.h"
-#include "esp_system.h"
-#include "esp_err.h"
-#include "esp_camera.h"
-#include "esp_wifi.h"
-#include "esp_event.h"
-#include "esp_mac.h"
-#include "esp_wps.h"
-#include "esp_http_client.h"
-
-#include "driver/uart.h"
-#include "driver/ledc.h"
-#include "driver/gpio.h"
-
-#include "freertos/FreeRTOS.h"
-#include "freertos/task.h"
-#include "freertos/event_groups.h"
-
-#include "lwip/err.h"
-#include "lwip/sys.h"
-
-#include "soc/soc.h"
-#include "soc/rtc_cntl_reg.h"
+#include "header.h"
 
 #define BOARD_ESP32CAM_AITHINKER // 해당 핀맵을 사용한다고 선언
 
@@ -86,7 +56,7 @@ static camera_config_t camera_config = {
     .fb_location = CAMERA_FB_IN_PSRAM,
 };
 
-static void tune_sensor_for_quality(void)
+void tune_sensor_for_quality(void)
 {
     sensor_t *s = esp_camera_sensor_get();
 
@@ -115,7 +85,7 @@ static void tune_sensor_for_quality(void)
 #endif
 
 // 카메라 초기화
-static esp_err_t init_camera(void)
+esp_err_t init_camera(void)
 {
     esp_err_t err = esp_camera_init(&camera_config); // 설정값 넘기고 상태 받음
 
