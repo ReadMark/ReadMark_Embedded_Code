@@ -3,7 +3,7 @@
 #define BUF_SIZE 1024 // 입력 버퍼 사이즈
 #define FLASH_PIN 4   // Flash 핀 설정
 
-#define MAX_JSON_BODY (16 * 2024) // 서버 응답 메시지 제한
+#define MAX_JSON_BODY 1024 // 서버 응답 메시지 제한
 
 // 서버 통신 설정
 static EventGroupHandle_t s_wifi_evt; // 핸들의 이벤트를 담는 변수
@@ -38,7 +38,6 @@ static const char *captureTag = "Take_Capture";
 static const char *flashTimerTag = "Flash_Timer";
 static const char *flashChannelTag = "Flash_Channel";
 static const char *WifiConfigTag = "Wifi_config";
-static const char *arpTag = "ARP";
 static const char *sendPhotoTag = "Send_Photo";
 static const char *cJsonParsingTag = "cJsonParsing";
 
@@ -46,8 +45,8 @@ static const char *cJsonParsingTag = "cJsonParsing";
 const char *ssid = "ORBI96";
 const char *password = "moderncurtain551";
 
-char *cJsonBuffer;                                  // cJson 파싱 값 저장 버퍼
-char url[128] = "http://192.168.1.51:5000/upload/"; // 서버 접속 URL
+char *cJsonBuffer;                                 // cJson 파싱 값 저장 버퍼
+char url[128] = "http://192.168.1.51:5000/upload"; // 서버 접속 URL
 
 // 카메라 설정
 #if ESP_CAMERA_SUPPORTED
@@ -256,19 +255,25 @@ void wifi_init(void)
 // 이미지 HTTP 전송
 int sendPhoto(const char *url, char *resp_buf, size_t resp_buf_sz)
 {
+    int rc = ESP_FAIL;
+    camera_fb_t *pic = NULL;
+    esp_http_client_handle_t client = NULL;
+
     // 카메라 사진 촬영
-    ESP_ERROR_CHECK(ledc_set_duty(LEDC_LOW_SPEED_MODE, LEDC_CHANNEL_1, 3500));
+    ESP_ERROR_CHECK(ledc_set_duty(LEDC_LOW_SPEED_MODE, LEDC_CHANNEL_1, 500));
     ESP_ERROR_CHECK(ledc_update_duty(LEDC_LOW_SPEED_MODE, LEDC_CHANNEL_1));
     vTaskDelay(pdMS_TO_TICKS(50));
 
-    camera_fb_t *pic = esp_camera_fb_get();
+    pic = esp_camera_fb_get();
 
     ESP_ERROR_CHECK(ledc_set_duty(LEDC_LOW_SPEED_MODE, LEDC_CHANNEL_1, 0));
     ESP_ERROR_CHECK(ledc_update_duty(LEDC_LOW_SPEED_MODE, LEDC_CHANNEL_1));
 
-    if (!pic)
+    if (!pic || !pic->buf || pic->len == 0)
     {
         ESP_LOGE(captureTag, "사진 촬영 실패");
+        rc = -1;
+        goto WRITE_FAIL;
     }
 
     ESP_LOGI(captureTag, "사진이 찍혔습니다 ! / 사진 크기 : %zu", pic->len);
@@ -290,8 +295,8 @@ int sendPhoto(const char *url, char *resp_buf, size_t resp_buf_sz)
     if (head_len <= 0 || tail_len <= 0)
     {
         ESP_LOGE(sendPhotoTag, "snprintf 실패");
-        esp_camera_fb_return(pic);
-        return -2;
+        rc = -2;
+        goto WRITE_FAIL;
     }
 
     // 콘텐츠의 총 크기 (보내는 크기 + 사진 크기 + 보내기 종료 크기)
@@ -302,14 +307,15 @@ int sendPhoto(const char *url, char *resp_buf, size_t resp_buf_sz)
         .url = url,
         .method = HTTP_METHOD_POST, // 전송 방식 (method에 POST)
         .timeout_ms = 10000,        // waiting 시간
+        .keep_alive_enable = false, // 메모리 누수 방지용으로 끔
     };
 
     // HTTP Client 초기화
-    esp_http_client_handle_t client = esp_http_client_init(&cfg);
+    client = esp_http_client_init(&cfg);
     if (!client)
     {
         ESP_LOGI(sendPhotoTag, "http client초기화 실패");
-        esp_camera_fb_return(pic);
+        goto WRITE_FAIL;
         return -3;
     }
 
@@ -321,7 +327,9 @@ int sendPhoto(const char *url, char *resp_buf, size_t resp_buf_sz)
 
     // 서버에게 (바디가 멀티파트임을 알림, 경계값 제공, Content-Type 헤더 값) 를 넘김
     esp_http_client_set_header(client, "Content-Type", ctype);
-    esp_http_client_set_header(client, "Content-Length", NULL);
+    esp_http_client_set_header(client, "Accept", "application/json");
+    esp_http_client_set_header(client, "Accept-Encoding", "identity");
+    esp_http_client_set_header(client, "Connection", "close");
 
     // 서버와 TCP 연결을 맺고, 요청 라인 헤더 정보들을 보낼 준비를 한다
     esp_err_t err = esp_http_client_open(client, content_len);
@@ -329,159 +337,94 @@ int sendPhoto(const char *url, char *resp_buf, size_t resp_buf_sz)
     if (err != ESP_OK)
     {
         ESP_LOGI(sendPhotoTag, "open 실패 %s", esp_err_to_name(err));
-        esp_http_client_cleanup(client); // 클라이언트 핸들 정리 (소켓 닫기, 내부 버퍼, 메모리 해제)
-        esp_camera_fb_return(pic);
+        goto WRITE_FAIL; // 클라이언트 핸들 정리 (소켓 닫기, 내부 버퍼, 메모리 해제)
         return -4;
     } // 헤더 설정 코드 주석 & 이해 필요한 것 정리
 
-    // 본문 스트리밍
-    int w = 0;
-    // 지정한 버퍼의 데이터를 len 바이트만큼 HTTP요청 body로 전송한다
-    w = esp_http_client_write(client, head, head_len);
-    if (w != head_len)
+    if (esp_http_client_write(client, head, head_len) != head_len)
     {
-        ESP_LOGE(sendPhotoTag, "헤드 write 실패");
+        rc = -5;
+        goto WRITE_FAIL;
+    }
+    if (esp_http_client_write(client, (const char *)pic->buf, pic->len) != pic->len)
+    {
+        rc = -5;
+        goto WRITE_FAIL;
+    }
+    if (esp_http_client_write(client, tail, tail_len) != tail_len)
+    {
+        rc = -5;
         goto WRITE_FAIL;
     }
 
-    // JPEG 본문을 1024바이트씩 전송
-    const uint8_t *p = pic->buf;
-    size_t remain = pic->len;
+    esp_http_client_fetch_headers(client);
 
-    while (remain > 0)
+    // 응답 바디를 resp_buf로 읽기
+    int total = 0;
+    while (1)
     {
-        size_t chunk = (remain > 1024) ? 1024 : remain;
-        w = esp_http_client_write(client, (const char *)p, chunk);
-
-        if (w != (int)chunk)
-        {
-            ESP_LOGE(sendPhotoTag, "write jpeg 실패");
-            goto WRITE_FAIL;
-        }
-        p += chunk;      // 사진의 새로운 부분부터 보내야 하므로 이미 보낸 부분(chunk)를 제외
-        remain -= chunk; // 사진을 다(0) 보낼 때 까지 반복, 사진의 1024바이트씩 보냄
+        int r = esp_http_client_read(client, resp_buf + total, (int)resp_buf_sz - 1 - total);
+        if (r <= 0)
+            break;
+        total += r;
+        if ((size_t)total >= resp_buf_sz - 1)
+            break;
     }
+    resp_buf[total] = '\0';
+    // ESP_LOGI(sendPhotoTag, "RAW JSON (%dB): %.*s", total, total, resp_buf);
 
-    w = esp_http_client_write(client, tail, tail_len);
-    if (w != tail_len)
-    {
-        ESP_LOGE(sendPhotoTag, "write tail 실패");
-        goto WRITE_FAIL;
-    }
-
-    // 응답 상태 / 헤더 / 바디 읽기
-    int status = esp_http_client_fetch_headers(client);        // 헤더만 읽음, 에러 / 헤더 길이를 반환함
-    int http_status = esp_http_client_get_status_code(client); // HTTP 상태 코드 가져오기 (ex : 404, 200)
-
-    if (resp_buf && resp_buf_sz > 0) // 응답을 저장할 버퍼가 있고, 크기도 0보다 큰 경우
-    {
-        int total = 0;
-        while (1)
-        {
-            // 서버 응답을 읽는 함수로 resp_buf + total부터 내용을 채움, - 읽은 범위 - NULL문자
-            int r = esp_http_client_read(client, resp_buf + total, (int)resp_buf_sz - 1 - total);
-
-            // 더 이상 읽을 데이터가 없을 때
-            if (r <= 0)
-            {
-                break;
-            }
-            total += r;                           // r을 더해서 이미 읽은 부분은 제외
-            if ((size_t)total >= resp_buf_sz - 1) // 다 읽었으면 종료
-                break;
-        }
-        cJsonParsing(client);
-        resp_buf[total] = '\0';
-        ESP_LOGI(sendPhotoTag, "응답(%d) : %s", http_status, resp_buf);
-    }
-    else
-    {
-        ESP_LOGI(sendPhotoTag, "HTTP 상태 코드(%d)", status);
-    }
-
-    // 모든 설정 종료 후 HTTP 상태 코드 반환
-    esp_http_client_close(client);
-    esp_http_client_cleanup(client);
-    esp_camera_fb_return(pic);
-    return http_status;
+    parse_json_body(resp_buf, total, client);
+    rc = ESP_OK;
 
 WRITE_FAIL: // 모든 설정들을 종료
-    esp_http_client_close(client);
-    esp_http_client_cleanup(client);
-    esp_camera_fb_return(pic);
-    return -5;
+    if (client)
+    {
+        esp_http_client_close(client);
+        esp_http_client_cleanup(client);
+    }
+    if (pic)
+    {
+        esp_camera_fb_return(pic);
+    }
+    return rc;
 }
 
-void cJsonParsing(esp_http_client_handle_t client) // client 핸들러 받아서 파싱 시작
+void parse_json_body(const char *body, size_t len, esp_http_client_handle_t client)
 {
-    esp_err_t err = esp_http_client_perform(client);
-    char *buffer = NULL; // cJson 파싱 값이 저장되는 버퍼
-    int n = 0;
-
-    if (err == ESP_OK)
-    { // PRId64 = 64비트 정수 출력 서식 문자열
-        int64_t content_length = esp_http_client_get_content_length(client);
-        int status = esp_http_client_get_status_code(client);
-        int total_read = 0;
-        ESP_LOGI(cJsonParsingTag, "HTTP 상태 코드 : %d\n content_length : %" PRId64, status, content_length);
-
-        if (content_length > 0)
-        {
-            if (content_length > MAX_JSON_BODY)
-            {
-                ESP_LOGI(cJsonParsingTag, "파일의 크기가 너무 큽니다");
-                return;
-            }
-
-            else
-            {
-                buffer = malloc(content_length + 1);
-
-                if (!buffer)
-                {
-                    ESP_LOGI(cJsonParsingTag, "malloc 실패 : (% " PRId64 " 바이트)", content_length);
-                    return;
-                }
-
-                while (total_read < content_length)
-                {
-                    n = esp_http_client_read_response(client, buffer + total_read, content_length - total_read);
-
-                    if (n <= 0)
-                    {
-                        ESP_LOGE(cJsonParsingTag, "cJson 읽어들이기 실패 남은 content_length : %" PRId64, content_length);
-                        break;
-                    }
-                    total_read += n;
-                }
-
-                buffer[total_read] = 0;
-            }
-        }
-    }
-    else
+    if (!body || len == 0 || len > MAX_JSON_BODY)
     {
-        ESP_LOGE(cJsonParsingTag, "HTTP 값 받기 실패 : %s", esp_err_to_name(err));
+        ESP_LOGE(cJsonParsingTag, "조건이 부합하지 않습니다. (len : %zu)", len);
         return;
     }
 
-    cJSON *root = cJSON_Parse(buffer);
+    char *buffer = (char *)malloc(len + 1);
+    if (!buffer)
+    {
+        ESP_LOGE(cJsonParsingTag, "동적 메모리 할당 실패");
+        return;
+    }
 
+    memcpy(buffer, body, len);
+    buffer[len] = '\0';
+
+    cJSON *root = cJSON_Parse(buffer);
     if (!root)
     {
-        ESP_LOGI(cJsonParsingTag, "Json 파싱 실패");
+        ESP_LOGE(cJsonParsingTag, "노드 얻어오기 실패");
         free(buffer);
         return;
     }
 
-    else if (root)
+    cJSON *msg = cJSON_GetObjectItemCaseSensitive(root, "test_value");
+    if (cJSON_IsNumber(msg))
     {
-        cJSON *msg = cJSON_GetObjectItem(root, "message");
-        if (cJSON_IsString(msg) && msg->valuestring)
-        {
-            int value = atoi(msg->valuestring);
-            ESP_LOGI(cJsonParsingTag, "값 : %d", value);
-        }
+        // int value = msg->valueint;
+        ESP_LOGI(cJsonParsingTag, "-----------------------\n valueInt : %d", msg->valueint);
+    }
+    else if (cJSON_IsString(msg))
+    {
+        // int value = atoi(msg->valueint);
+        ESP_LOGI(cJsonParsingTag, "-----------------------\n valueString : %s", msg->valuestring);
     }
 
     cJSON_Delete(root);
@@ -537,15 +480,10 @@ void app_main(void)
                 xEventGroupWaitBits(s_wifi_evt, WIFI_GOTIP_BIT, false, true, portMAX_DELAY);
 
                 char resp[256];
-                int code = sendPhoto(url, resp, sizeof(resp));
-
-                if (code >= 200 && code < 300)
+                esp_err_t err = sendPhoto(url, resp, sizeof(resp));
+                if (err != ESP_OK)
                 {
-                    ESP_LOGI(arpTag, "업로드 성공 %d", code);
-                }
-                else
-                {
-                    ESP_LOGI(arpTag, "업로드 실패 %d", code);
+                    ESP_LOGE(sendPhotoTag, "사진 전송 실패");
                 }
             }
         }

@@ -7,6 +7,8 @@
 #include <stdint.h>
 #include <cJSON.h>
 #include <sys/param.h>
+#include <stdlib.h>
+#include <inttypes.h>
 #include <nvs_flash.h>
 #include <unistd.h>
 
@@ -37,8 +39,8 @@
 // 함수 원형 선언
 void wifi_init(void);
 int sendPhoto(const char *url, char *resp_buf, size_t resp_buf_sz);
-void cJsonParsing(esp_http_client_handle_t client);
 esp_err_t init_camera(void);
 void tune_sensor_for_quality(void);
+void parse_json_body(const char *body, size_t len, esp_http_client_handle_t client);
 
 #endif
