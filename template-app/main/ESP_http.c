@@ -1,3 +1,4 @@
+
 #include "header.h"
 
 #define BUF_SIZE 1024             // 입력 버퍼 사이즈
@@ -8,6 +9,13 @@ static const char *captureTag = "Capture";
 char *cJsonBuffer; // cJson 파싱 값 저장 버퍼
 
 char url[128] = "http://192.168.1.51:5000/upload/"; // 서버 접속 URL
+
+/*
+서버의
+1. 서버 URL
+2. json body 전용 버퍼
+3. 버퍼 사이즈
+*/
 
 // 이미지 HTTP 전송
 int sendPhoto(const char *url, char *resp_buf, size_t resp_buf_sz)

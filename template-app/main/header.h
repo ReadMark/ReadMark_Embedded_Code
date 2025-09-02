@@ -20,6 +20,7 @@
 #include "esp_event.h"
 #include "esp_mac.h"
 #include "esp_wps.h"
+#include "esp_vfs_dev.h"
 #include "esp_http_client.h"
 
 #include "driver/uart.h"

@@ -3,6 +3,9 @@
 #define BUF_SIZE 1024 // 입력 버퍼 사이즈
 #define FLASH_PIN 4   // Flash 핀 설정
 
+// #define UART_RX_BUF (2048)
+// #define UART_TX_BUF (256)
+
 #define MAX_JSON_BODY 1024 // 서버 응답 메시지 제한
 
 // 서버 통신 설정
@@ -433,10 +436,16 @@ void parse_json_body(const char *body, size_t len, esp_http_client_handle_t clie
 
 void app_main(void)
 {
+    uart_driver_delete(UART_NUM_0);
+
     // 기본 Uart 통신 설정
     uart_param_config(UART_NUM_0, &uart_config);
     uart_driver_install(UART_NUM_0, BUF_SIZE, 0, 0, NULL, 0);
     uart_set_pin(UART_NUM_0, UART_PIN_NO_CHANGE, UART_PIN_NO_CHANGE, UART_PIN_NO_CHANGE, UART_PIN_NO_CHANGE);
+
+    esp_vfs_dev_uart_use_driver(UART_NUM_0);
+
+    uart_flush_input(UART_NUM_0);
 
     // GPIO 설정
     gpio_pad_select_gpio(FLASH_PIN);
@@ -467,7 +476,7 @@ void app_main(void)
     while (1)
     {
         // Flash 코드
-        int len = uart_read_bytes(UART_NUM_0, uart_buff, BUF_SIZE, 100 / portTICK_PERIOD_MS);
+        int len = uart_read_bytes(UART_NUM_0, uart_buff, BUF_SIZE - 1, 100 / portTICK_PERIOD_MS);
 
         if (len > 0 && len < BUF_SIZE)
         {
@@ -475,6 +484,8 @@ void app_main(void)
             char *str = (char *)uart_buff;
             printf("input : {%s}\n", str);
 
+            while (*str == '\r' || *str == '\n')
+                str++;
             if (str[0] == '1')
             {
                 xEventGroupWaitBits(s_wifi_evt, WIFI_GOTIP_BIT, false, true, portMAX_DELAY);
@@ -491,6 +502,9 @@ void app_main(void)
         {
             uart_buff[BUF_SIZE] = '\0';
         }
+
+        // 반응 회복
+        vTaskDelay(pdMS_TO_TICKS(10));
     }
 }
 // 보드 고려 조건문
