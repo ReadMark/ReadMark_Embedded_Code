@@ -1,6 +1,6 @@
 {
   "C_Cpp.intelliSenseEngine": "default",
-  "idf.portWin": "COM11",
+  "idf.portWin": "COM15",
   "idf.flashType": "UART",
   "files.associations": {
     "freertos.h": "c",
@@ -10,6 +10,7 @@
     "esp_system.h": "c",
     "esp_log.h": "c",
     "rtc_cntl_reg.h": "c",
-    "header.h": "c"
+    "header.h": "c",
+    "sys.h": "c"
   }
 }
