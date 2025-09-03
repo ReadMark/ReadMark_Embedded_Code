@@ -3,9 +3,6 @@
 #define BUF_SIZE 1024 // 입력 버퍼 사이즈
 #define FLASH_PIN 4   // Flash 핀 설정
 
-// #define UART_RX_BUF (2048)
-// #define UART_TX_BUF (256)
-
 #define MAX_JSON_BODY 1024 // 서버 응답 메시지 제한
 
 // 서버 통신 설정
