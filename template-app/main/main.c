@@ -3,11 +3,10 @@
 #define BUF_SIZE 1024 // 입력 버퍼 사이즈
 #define FLASH_PIN 4   // Flash 핀 설정
 
-<<<<<<< Updated upstream
+// #define UART_RX_BUF (2048)
+// #define UART_TX_BUF (256)
+
 #define MAX_JSON_BODY 1024 // 서버 응답 메시지 제한
-=======
-#define MAX_JSON_BODY (16 * 2024) // 서버 응답 메시지 제한
->>>>>>> Stashed changes
 
 // 서버 통신 설정
 static EventGroupHandle_t s_wifi_evt; // 핸들의 이벤트를 담는 변수
@@ -38,18 +37,10 @@ static EventGroupHandle_t s_wifi_evt; // 핸들의 이벤트를 담는 변수
 #endif
 
 // LOG용 TAG 모음
-<<<<<<< Updated upstream
-=======
-// 다른 파일에서 접근 못하게 static으로 했는데 .. 파일이 하나야 ㅠㅠ
->>>>>>> Stashed changes
 static const char *captureTag = "Take_Capture";
 static const char *flashTimerTag = "Flash_Timer";
 static const char *flashChannelTag = "Flash_Channel";
 static const char *WifiConfigTag = "Wifi_config";
-<<<<<<< Updated upstream
-=======
-static const char *arpTag = "ARP";
->>>>>>> Stashed changes
 static const char *sendPhotoTag = "Send_Photo";
 static const char *cJsonParsingTag = "cJsonParsing";
 
@@ -57,7 +48,6 @@ static const char *cJsonParsingTag = "cJsonParsing";
 const char *ssid = "ORBI96";
 const char *password = "moderncurtain551";
 
-<<<<<<< Updated upstream
 char *cJsonBuffer;                                 // cJson 파싱 값 저장 버퍼
 char url[128] = "http://192.168.1.51:5000/upload"; // 서버 접속 URL
 
@@ -120,77 +110,6 @@ void tune_sensor_for_quality(void)
         s->set_sharpness(s, 2); // -2~2
 }
 #endif
-=======
-char *cJsonBuffer;                                  // cJson 파싱 값 저장 버퍼
-char url[128] = "http://192.168.1.51:5000/upload/"; // 서버 접속 URL
->>>>>>> Stashed changes
-
-// 함수의 원형
-void cJsonParsing(esp_http_client_handle_t client);
-static esp_err_t init_camera(void);
-static void wifi_event_handler(void *handler_arg, esp_event_base_t base, int32_t event_id, void *event_data);
-static void wifi_init(void);
-int sendPhoto(const char *url, char *resp_buf, size_t resp_buf_sz);
-
-// 카메라 설정
-#if ESP_CAMERA_SUPPORTED
-static camera_config_t camera_config = {
-    .pin_pwdn = PWDN_GPIO_NUM,
-    .pin_reset = RESET_GPIO_NUM,
-    .pin_xclk = XCLK_GPIO_NUM,
-    .pin_sccb_sda = SIOD_GPIO_NUM,
-    .pin_sccb_scl = SIOC_GPIO_NUM,
-
-    .pin_d7 = Y9_GPIO_NUM,
-    .pin_d6 = Y8_GPIO_NUM,
-    .pin_d5 = Y7_GPIO_NUM,
-    .pin_d4 = Y6_GPIO_NUM,
-    .pin_d3 = Y5_GPIO_NUM,
-    .pin_d2 = Y4_GPIO_NUM,
-    .pin_d1 = Y3_GPIO_NUM,
-    .pin_d0 = Y2_GPIO_NUM,
-    .pin_vsync = VSYNC_GPIO_NUM,
-    .pin_href = HREF_GPIO_NUM,
-    .pin_pclk = PCLK_GPIO_NUM,
-
-    .xclk_freq_hz = 20000000, // 20 MHz
-    .ledc_timer = LEDC_TIMER_0,
-    .ledc_channel = LEDC_CHANNEL_0,
-    .pixel_format = PIXFORMAT_JPEG, // 웹스트리밍/스냅샷 용
-    .frame_size = FRAMESIZE_SVGA,   // SVGA, XGA
-    .jpeg_quality = 10,             // 0(최고)~63(최저)
-    .fb_count = 2,                  // 더 크게 하면 프레임 안정 (2가 빨랐음)
-    .grab_mode = CAMERA_GRAB_LATEST,
-    .fb_location = CAMERA_FB_IN_PSRAM,
-};
-
-static void tune_sensor_for_quality(void)
-{
-    sensor_t *s = esp_camera_sensor_get();
-
-    // 자동 제어 (기본 On 권장)
-    s->set_whitebal(s, 1);      // AWB
-    s->set_exposure_ctrl(s, 1); // AEC
-    s->set_gain_ctrl(s, 1);     // AGC
-    s->set_ae_level(s, -1);
-    s->set_gainceiling(s, GAINCEILING_16X);
-    s->set_aec2(s, 1);
-
-    // 렌즈/픽셀 보정 (체감효과 큼)
-    s->set_lenc(s, 1); // Lens correction(비네팅 완화)
-    s->set_bpc(s, 1);  // Bad Pixel Correction
-    s->set_wpc(s, 1);  // White Pixel Correction
-
-    // 톤/선명도 (상황 맞춰 살짝)
-    s->set_brightness(s, 0); // -2~2
-    s->set_contrast(s, 1);   // -2~2 (텍스트 대비↑에 도움)
-    s->set_saturation(s, 0); // -2~2
-    s->set_whitebal(s, 0);
-    // (센서에 따라 지원될 때만)
-    if (s->set_sharpness)
-        s->set_sharpness(s, 2); // -2~2
-}
-#endif
 
 // 통신 설정
 const uart_config_t uart_config = {
@@ -222,11 +141,7 @@ const ledc_channel_config_t ledc_channel = {
 };
 
 // 카메라 초기화
-<<<<<<< Updated upstream
 esp_err_t init_camera(void)
-=======
-static esp_err_t init_camera(void)
->>>>>>> Stashed changes
 {
     esp_err_t err = esp_camera_init(&camera_config); // 설정값 넘기고 상태 받음
 
@@ -343,7 +258,6 @@ void wifi_init(void)
 // 이미지 HTTP 전송
 int sendPhoto(const char *url, char *resp_buf, size_t resp_buf_sz)
 {
-<<<<<<< Updated upstream
     int rc = ESP_FAIL;
     camera_fb_t *pic = NULL;
     esp_http_client_handle_t client = NULL;
@@ -354,29 +268,15 @@ int sendPhoto(const char *url, char *resp_buf, size_t resp_buf_sz)
     vTaskDelay(pdMS_TO_TICKS(50));
 
     pic = esp_camera_fb_get();
-=======
-    // 카메라 사진 촬영
-    ESP_ERROR_CHECK(ledc_set_duty(LEDC_LOW_SPEED_MODE, LEDC_CHANNEL_1, 3500));
-    ESP_ERROR_CHECK(ledc_update_duty(LEDC_LOW_SPEED_MODE, LEDC_CHANNEL_1));
-    vTaskDelay(pdMS_TO_TICKS(50));
-
-    camera_fb_t *pic = esp_camera_fb_get();
->>>>>>> Stashed changes
 
     ESP_ERROR_CHECK(ledc_set_duty(LEDC_LOW_SPEED_MODE, LEDC_CHANNEL_1, 0));
     ESP_ERROR_CHECK(ledc_update_duty(LEDC_LOW_SPEED_MODE, LEDC_CHANNEL_1));
 
-<<<<<<< Updated upstream
     if (!pic || !pic->buf || pic->len == 0)
     {
         ESP_LOGE(captureTag, "사진 촬영 실패");
         rc = -1;
         goto WRITE_FAIL;
-=======
-    if (!pic)
-    {
-        ESP_LOGE(captureTag, "사진 촬영 실패");
->>>>>>> Stashed changes
     }
 
     ESP_LOGI(captureTag, "사진이 찍혔습니다 ! / 사진 크기 : %zu", pic->len);
@@ -398,13 +298,8 @@ int sendPhoto(const char *url, char *resp_buf, size_t resp_buf_sz)
     if (head_len <= 0 || tail_len <= 0)
     {
         ESP_LOGE(sendPhotoTag, "snprintf 실패");
-<<<<<<< Updated upstream
         rc = -2;
         goto WRITE_FAIL;
-=======
-        esp_camera_fb_return(pic);
-        return -2;
->>>>>>> Stashed changes
     }
 
     // 콘텐츠의 총 크기 (보내는 크기 + 사진 크기 + 보내기 종료 크기)
@@ -415,7 +310,6 @@ int sendPhoto(const char *url, char *resp_buf, size_t resp_buf_sz)
         .url = url,
         .method = HTTP_METHOD_POST, // 전송 방식 (method에 POST)
         .timeout_ms = 10000,        // waiting 시간
-<<<<<<< Updated upstream
         .keep_alive_enable = false, // 메모리 누수 방지용으로 끔
     };
 
@@ -425,16 +319,6 @@ int sendPhoto(const char *url, char *resp_buf, size_t resp_buf_sz)
     {
         ESP_LOGI(sendPhotoTag, "http client초기화 실패");
         goto WRITE_FAIL;
-=======
-    };
-
-    // HTTP Client 초기화
-    esp_http_client_handle_t client = esp_http_client_init(&cfg);
-    if (!client)
-    {
-        ESP_LOGI(sendPhotoTag, "http client초기화 실패");
-        esp_camera_fb_return(pic);
->>>>>>> Stashed changes
         return -3;
     }
 
@@ -446,13 +330,9 @@ int sendPhoto(const char *url, char *resp_buf, size_t resp_buf_sz)
 
     // 서버에게 (바디가 멀티파트임을 알림, 경계값 제공, Content-Type 헤더 값) 를 넘김
     esp_http_client_set_header(client, "Content-Type", ctype);
-<<<<<<< Updated upstream
     esp_http_client_set_header(client, "Accept", "application/json");
     esp_http_client_set_header(client, "Accept-Encoding", "identity");
     esp_http_client_set_header(client, "Connection", "close");
-=======
-    esp_http_client_set_header(client, "Content-Length", NULL);
->>>>>>> Stashed changes
 
     // 서버와 TCP 연결을 맺고, 요청 라인 헤더 정보들을 보낼 준비를 한다
     esp_err_t err = esp_http_client_open(client, content_len);
@@ -460,7 +340,6 @@ int sendPhoto(const char *url, char *resp_buf, size_t resp_buf_sz)
     if (err != ESP_OK)
     {
         ESP_LOGI(sendPhotoTag, "open 실패 %s", esp_err_to_name(err));
-<<<<<<< Updated upstream
         goto WRITE_FAIL; // 클라이언트 핸들 정리 (소켓 닫기, 내부 버퍼, 메모리 해제)
         return -4;
     } // 헤더 설정 코드 주석 & 이해 필요한 것 정리
@@ -553,89 +432,6 @@ void parse_json_body(const char *body, size_t len, esp_http_client_handle_t clie
 
     cJSON_Delete(root);
     free(buffer);
-=======
-        esp_http_client_cleanup(client); // 클라이언트 핸들 정리 (소켓 닫기, 내부 버퍼, 메모리 해제)
-        esp_camera_fb_return(pic);
-        return -4;
-    } // 헤더 설정 코드 주석 & 이해 필요한 것 정리
-
-    // 본문 스트리밍
-    int w = 0;
-    // 지정한 버퍼의 데이터를 len 바이트만큼 HTTP요청 body로 전송한다
-    w = esp_http_client_write(client, head, head_len);
-    if (w != head_len)
-    {
-        ESP_LOGE(sendPhotoTag, "헤드 write 실패");
-        goto WRITE_FAIL;
-    }
-
-    // JPEG 본문을 1024바이트씩 전송
-    const uint8_t *p = pic->buf;
-    size_t remain = pic->len;
-
-    while (remain > 0)
-    {
-        size_t chunk = (remain > 1024) ? 1024 : remain;
-        w = esp_http_client_write(client, (const char *)p, chunk);
-
-        if (w != (int)chunk)
-        {
-            ESP_LOGE(sendPhotoTag, "write jpeg 실패");
-            goto WRITE_FAIL;
-        }
-        p += chunk;      // 사진의 새로운 부분부터 보내야 하므로 이미 보낸 부분(chunk)를 제외
-        remain -= chunk; // 사진을 다(0) 보낼 때 까지 반복, 사진의 1024바이트씩 보냄
-    }
-
-    w = esp_http_client_write(client, tail, tail_len);
-    if (w != tail_len)
-    {
-        ESP_LOGE(sendPhotoTag, "write tail 실패");
-        goto WRITE_FAIL;
-    }
-
-    // 응답 상태 / 헤더 / 바디 읽기
-    int status = esp_http_client_fetch_headers(client);        // 헤더만 읽음, 에러 / 헤더 길이를 반환함
-    int http_status = esp_http_client_get_status_code(client); // HTTP 상태 코드 가져오기 (ex : 404, 200)
-
-    if (resp_buf && resp_buf_sz > 0) // 응답을 저장할 버퍼가 있고, 크기도 0보다 큰 경우
-    {
-        int total = 0;
-        while (1)
-        {
-            // 서버 응답을 읽는 함수로 resp_buf + total부터 내용을 채움, - 읽은 범위 - NULL문자
-            int r = esp_http_client_read(client, resp_buf + total, (int)resp_buf_sz - 1 - total);
-
-            // 더 이상 읽을 데이터가 없을 때
-            if (r <= 0)
-            {
-                break;
-            }
-            total += r;                           // r을 더해서 이미 읽은 부분은 제외
-            if ((size_t)total >= resp_buf_sz - 1) // 다 읽었으면 종료
-                break;
-        }
-        cJsonParsing(client);
-        resp_buf[total] = '\0';
-        ESP_LOGI(sendPhotoTag, "응답(%d) : %s", http_status, resp_buf);
-    }
-    else
-    {
-        ESP_LOGI(sendPhotoTag, "HTTP 상태 코드(%d)", status);
-    }
-
-    // 모든 설정 종료 후 HTTP 상태 코드 반환
-    esp_http_client_close(client);
-    esp_http_client_cleanup(client);
-    esp_camera_fb_return(pic);
-    return http_status;
-
-WRITE_FAIL: // 모든 설정들을 종료
-    esp_http_client_close(client);
-    esp_http_client_cleanup(client);
-    esp_camera_fb_return(pic);
-    return -5;
->>>>>>> Stashed changes
 }
 
 void app_main(void)
@@ -647,13 +443,10 @@ void app_main(void)
     uart_driver_install(UART_NUM_0, BUF_SIZE, 0, 0, NULL, 0);
     uart_set_pin(UART_NUM_0, UART_PIN_NO_CHANGE, UART_PIN_NO_CHANGE, UART_PIN_NO_CHANGE, UART_PIN_NO_CHANGE);
 
-<<<<<<< Updated upstream
     esp_vfs_dev_uart_use_driver(UART_NUM_0);
 
     uart_flush_input(UART_NUM_0);
 
-=======
->>>>>>> Stashed changes
     // GPIO 설정
     gpio_pad_select_gpio(FLASH_PIN);
     gpio_set_direction(FLASH_PIN, GPIO_MODE_OUTPUT);
