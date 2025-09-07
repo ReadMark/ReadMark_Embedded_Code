@@ -23,6 +23,8 @@ int sendPhoto(const char *url, char *resp_buf, size_t resp_buf_sz)
     int rc = ESP_FAIL;
     camera_fb_t *pic = NULL;
     esp_http_client_handle_t client = NULL;
+    char *tail = NULL;
+    char *head = NULL;
 
     // 카메라 사진 촬영
     ESP_ERROR_CHECK(ledc_set_duty(LEDC_LOW_SPEED_MODE, LEDC_CHANNEL_1, 500));
@@ -44,18 +46,34 @@ int sendPhoto(const char *url, char *resp_buf, size_t resp_buf_sz)
     ESP_LOGI(captureTag, "사진이 찍혔습니다 ! / 사진 크기 : %zu", pic->len);
 
     const char *boundary = "----ESP32CamBoundary1234"; // 멀티파트에서 각 파트를 구분하는 구분자 문자열
-    // 멀티파트의 앞 부분을 담음 (Boundary의 여러 정보들을 담으며 넉넉하게 확보)
-    char head[256];
+                                                       // 멀티파트의 앞 부분을 담음 (Boundary의 여러 정보들을 담으며 넉넉하게 확보)
+
+    int head_need_len = snprintf(NULL, 0,
+                                 "--%s\r\n"
+                                 "Content-Disposition: form-data; name=\"image\"; filename=\"esp32-cam.jpg\"\r\n"
+                                 "Content-Type: image/jpeg\r\n\r\n",
+                                 boundary);
+
+    head = (char *)malloc(head_need_len + 1);
     // 멀티파트의 각 헤더로 서버가 읽을 필드명과 파일명을 지정함 (헤더와 바디 사이 빈 줄)
-    int head_len = snprintf(head, sizeof(head),
+    int head_len = snprintf(head, head_need_len + 1,
                             "--%s\r\n"
                             "Content-Disposition: form-data; name=\"image\"; filename=\"esp32-cam.jpg\"\r\n"
                             "Content-Type: image/jpeg\r\n\r\n",
                             boundary);
 
-    // 멀티파이트를 닫는 부분이라 짧음 (넉넉하게 확보)
-    char tail[64];
-    int tail_len = snprintf(tail, sizeof(tail), "\r\n--%s--\r\n", boundary);
+    if (head_len != head_need_len)
+        ESP_LOGE(captureTag, "멀티파트 Head부분 에러");
+
+    int tail_need_len = snprintf(NULL, 0, "\r\n--%s--\r\n", boundary);
+
+    if (tail_need_len <= 0)
+        ESP_LOGE(captureTag, "tail에 필요한 사이즈 구하기 실패");
+
+    // 멀티파이트를 닫는 부분이라 짧음
+    tail = (char *)malloc(tail_need_len + 1);
+
+    int tail_len = snprintf(tail, tail_need_len + 1, "\r\n--%s--\r\n", boundary);
 
     if (head_len <= 0 || tail_len <= 0)
     {
@@ -80,8 +98,8 @@ int sendPhoto(const char *url, char *resp_buf, size_t resp_buf_sz)
     if (!client)
     {
         ESP_LOGI(sendPhotoTag, "http client초기화 실패");
+        rc = -3;
         goto WRITE_FAIL;
-        return -3;
     }
 
     // 헤더 설정
@@ -124,33 +142,33 @@ int sendPhoto(const char *url, char *resp_buf, size_t resp_buf_sz)
 
     esp_http_client_fetch_headers(client);
 
-    // 응답 바디를 resp_buf로 읽기
-    int total = 0;
-    while (1)
-    {
-        int r = esp_http_client_read(client, resp_buf + total, (int)resp_buf_sz - 1 - total);
-        if (r <= 0)
-            break;
-        total += r;
-        if ((size_t)total >= resp_buf_sz - 1)
-            break;
-    }
-    resp_buf[total] = '\0';
-    ESP_LOGI(sendPhotoTag, "RAW JSON (%dB): %.*s", total, total, resp_buf);
-
-    parse_json_body(resp_buf, total, client);
     rc = ESP_OK;
 
-WRITE_FAIL: // 모든 설정들을 종료
+WRITE_FAIL:
     if (client)
     {
         esp_http_client_close(client);
         esp_http_client_cleanup(client);
     }
+
     if (pic)
     {
-        esp_camera_fb_return(pic);
+        esp_camera_fb_return(pic); // free() 절대 금지
+        pic = NULL;
     }
+
+    if (head)
+    {
+        free(head);
+        head = NULL;
+    }
+
+    if (tail)
+    {
+        free(tail);
+        tail = NULL;
+    }
+
     return rc;
 }
 
