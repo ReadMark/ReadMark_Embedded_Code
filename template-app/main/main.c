@@ -40,7 +40,7 @@ static EventGroupHandle_t s_wifi_evt; // 핸들의 이벤트를 담는 변수
 static const char *captureTag = "Take_Capture";
 static const char *flashTimerTag = "Flash_Timer";
 static const char *flashChannelTag = "Flash_Channel";
-static const char *WifiConfigTag = "Wifi_config";
+static const char *wifiConfigTag = "Wifi_config";
 static const char *sendPhotoTag = "Send_Photo";
 static const char *cJsonParsingTag = "cJsonParsing";
 
@@ -162,14 +162,14 @@ void wifi_event_handler(void *handler_arg, esp_event_base_t base, int32_t event_
         switch (event_id)
         {
         case WIFI_EVENT_STA_START:
-            ESP_LOGI(WifiConfigTag, "STA시작 -> AP접속 시도");
+            ESP_LOGI(wifiConfigTag, "STA시작 -> AP접속 시도");
             esp_wifi_connect();
             break;
 
         case WIFI_EVENT_STA_CONNECTED:
         {
             wifi_event_sta_connected_t *e = (wifi_event_sta_connected_t *)event_data;
-            ESP_LOGI(WifiConfigTag, "AP연결됨 : ssid : %s, channel : %d", (char *)e->ssid, e->channel);
+            ESP_LOGI(wifiConfigTag, "AP연결됨 : ssid : %s, channel : %d", (char *)e->ssid, e->channel);
             xEventGroupSetBits(s_wifi_evt, WIFI_CONNECTED_BIT);
             break;
         }
@@ -177,27 +177,27 @@ void wifi_event_handler(void *handler_arg, esp_event_base_t base, int32_t event_
         case WIFI_EVENT_STA_DISCONNECTED:
         {
             wifi_event_sta_disconnected_t *e = (wifi_event_sta_disconnected_t *)event_data;
-            ESP_LOGE(WifiConfigTag, "AP연결 해제 :(해제 이유 : %d)", e->reason);
+            ESP_LOGE(wifiConfigTag, "AP연결 해제 :(해제 이유 : %d)", e->reason);
             xEventGroupClearBits(s_wifi_evt, WIFI_CONNECTED_BIT | WIFI_GOTIP_BIT); // 두 비트 모두 연결 없음으로 클리어
             esp_wifi_connect();
             break;
         }
 
         case WIFI_EVENT_AP_START:
-            ESP_LOGI(WifiConfigTag, "SoftAP 시작");
+            ESP_LOGI(wifiConfigTag, "SoftAP 시작");
             break;
 
         case WIFI_EVENT_AP_STACONNECTED:
         {
             wifi_event_ap_staconnected_t *e = (wifi_event_ap_staconnected_t *)event_data;
-            ESP_LOGI(WifiConfigTag, "클라이언트 접속 :" MACSTR ", AID = %d", MAC2STR(e->mac), e->aid);
+            ESP_LOGI(wifiConfigTag, "클라이언트 접속 :" MACSTR ", AID = %d", MAC2STR(e->mac), e->aid);
             break;
         }
 
         case WIFI_EVENT_AP_STADISCONNECTED:
         {
             wifi_event_ap_stadisconnected_t *e = (wifi_event_ap_stadisconnected_t *)event_data;
-            ESP_LOGI(WifiConfigTag, "클라이언트 해제: " MACSTR ", AID=%d", MAC2STR(e->mac), e->aid);
+            ESP_LOGI(wifiConfigTag, "클라이언트 해제: " MACSTR ", AID=%d", MAC2STR(e->mac), e->aid);
             break;
         }
         }
@@ -209,13 +209,13 @@ void wifi_event_handler(void *handler_arg, esp_event_base_t base, int32_t event_
         case IP_EVENT_STA_GOT_IP:
         {
             ip_event_got_ip_t *e = (ip_event_got_ip_t *)event_data;
-            ESP_LOGI(WifiConfigTag, "IP : " IPSTR, IP2STR(&e->ip_info.ip));
+            ESP_LOGI(wifiConfigTag, "IP : " IPSTR, IP2STR(&e->ip_info.ip));
             xEventGroupSetBits(s_wifi_evt, WIFI_GOTIP_BIT);
             break;
         }
 
         case IP_EVENT_STA_LOST_IP:
-            ESP_LOGI(WifiConfigTag, "IP손실");
+            ESP_LOGI(wifiConfigTag, "IP손실");
             xEventGroupClearBits(s_wifi_evt, WIFI_GOTIP_BIT);
             break;
         }
@@ -252,7 +252,7 @@ void wifi_init(void)
     ESP_ERROR_CHECK(esp_wifi_set_config(WIFI_IF_STA, &wifi_config)); // SSID/PASS 설정 적용
     ESP_ERROR_CHECK(esp_wifi_start());                               // Wi-Fi 연결
 
-    ESP_LOGI(WifiConfigTag, "wifi_init finished. SSID:%s password:%s", wifi_config.sta.ssid, wifi_config.sta.password);
+    ESP_LOGI(wifiConfigTag, "wifi_init finished. SSID:%s password:%s", wifi_config.sta.ssid, wifi_config.sta.password);
 }
 
 // 이미지 HTTP 전송
