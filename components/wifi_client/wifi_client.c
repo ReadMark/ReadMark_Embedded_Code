@@ -1,4 +1,5 @@
 #include "wifi_client.h"
+#include "oled_display.h"
 #include "esp_wifi.h"
 #include "esp_event.h"
 #include "nvs_flash.h"
@@ -13,9 +14,9 @@ bool websocket_start = false;
 
 static const char *TAG = "WIFI";
 
-#define WIFI_SSID "KT_GiGA_5G_6F98"
+#define WIFI_SSID "KT_GiGA_6F98"
 #define WIFI_PASS "4dc00gk820"
-#define SERVER_URL "??"
+#define SERVER_URL "ws://43.200.102.14:5000/ws"
 
 static void wifi_event_handler(void *arg, esp_event_base_t event_base, int32_t event_id, void *event_data)
 {
@@ -87,19 +88,32 @@ static void websocket_event_handler(void *arg, esp_event_base_t event_base, int3
             ESP_LOGI(TAG, "message reception [%.*s]", data->data_len, (char*)data->data_ptr);
 
             char *msg = strndup((const char*)data->data_ptr, data->data_len);
-            if (msg == NULL) {
+            if (msg == NULL)
+            {
                 ESP_LOGE(TAG, "Failed to allocate memory for message");
                 break;
             }
 
             cJSON *root = cJSON_Parse(msg);
-            if (root == NULL) {
+            if (root == NULL)
+            {
                 ESP_LOGE(TAG, "Invalid JSON: %s", msg);
                 free(msg);
                 break;
             }
 
-            // 파싱 할꺼 여따 넣기
+            cJSON *text = cJSON_GetObjectItem(root, "text");
+            cJSON *color = cJSON_GetObjectItem(root, "color");
+
+            if (cJSON_IsString(text)) {
+                uint16_t col = 0xFFFF; // 기본 흰색
+                if (cJSON_IsNumber(color)) {
+                    col = (uint16_t)color->valueint;
+                }
+
+                // OLED에 표시
+                oled_display_text(text->valuestring, col);
+            }
 
             cJSON_Delete(root);
             free(msg);

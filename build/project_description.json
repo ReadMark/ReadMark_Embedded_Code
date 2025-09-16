@@ -1,7 +1,7 @@
 {
     "version":            "1",
     "project_name":       "ReadMark_Embeddeed_Code",
-    "project_version":    "38634c3-dirty",
+    "project_version":    "8438c99-dirty",
     "project_path":       "C:/Users/user/Repository/ReadMark_Embedded_Code",
     "idf_path":           "C:/Users/user/Espressif/frameworks/esp-idf-v4.4.8",
     "build_dir":          "C:/Users/user/Repository/ReadMark_Embedded_Code/build",
@@ -1293,7 +1293,7 @@
             "dir": "C:/Users/user/Repository/ReadMark_Embedded_Code/components/wifi_client",
             "type": "LIBRARY",
             "lib": "__idf_wifi_client",
-            "reqs": [ "esp_wifi", "esp_event", "nvs_flash", "esp_http_client", "esp_websocket_client", "json" ],
+            "reqs": [ "esp_wifi", "esp_event", "nvs_flash", "esp_http_client", "esp_websocket_client", "oled_display", "json" ],
             "priv_reqs": [],
             "managed_reqs": [],
             "managed_priv_reqs": [],

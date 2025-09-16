@@ -82,7 +82,15 @@ static void oled_draw_char(int x, int y, char c, uint16_t color)
 
 void oled_draw_string(int x, int y, const char *str, uint16_t color)
 {
+    int orig_x = x;
+
     while (*str) {
+        if (*str == '\n') {
+            y += 8;    // 줄바꿈, 글자 높이(7) + 1
+            x = orig_x; // x 위치 초기화
+            str++;
+            continue;
+        }
         oled_draw_char(x, y, *str, color);
         x += 6; // 글자 폭(5) + 간격(1)
         str++;
@@ -207,4 +215,9 @@ esp_err_t oled_init(void)
 
     ESP_LOGI(OledTag, "OLED initialized");
     return ESP_OK;
+}
+
+void oled_display_text(const char *str, uint16_t color) {
+    oled_clear(0x0000); // 검정색으로 화면 초기화
+    oled_draw_string(0, 0, str, color);
 }
