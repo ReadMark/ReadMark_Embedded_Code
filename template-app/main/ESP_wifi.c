@@ -6,8 +6,8 @@
 static const char *WifiConfigTag = "Wifi_config";
 
 // 네트워크 ID, Password
-const char *ssid = "ORBI96";
-const char *password = "moderncurtain551";
+const char *ssid = "AP-5-1705";
+const char *password = "5435#69d";
 
 // 서버 통신 설정
 static EventGroupHandle_t s_wifi_evt; // 핸들의 이벤트를 담는 변수

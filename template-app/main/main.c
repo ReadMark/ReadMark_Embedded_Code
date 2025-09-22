@@ -1,7 +1,12 @@
 #include "header.h"
 
-#define BUF_SIZE 256 // 입력 버퍼 사이즈
-#define FLASH_PIN 4  // Flash 핀 설정
+#define BUF_SIZE 1024 // 입력 버퍼 사이즈
+#define FLASH_PIN 4   // Flash 핀 설정
+
+// #define UART_RX_BUF (2048)
+// #define UART_TX_BUF (256)
+
+#define MAX_JSON_BODY 1024 // 서버 응답 메시지 제한
 
 // 서버 통신 설정
 static EventGroupHandle_t s_wifi_evt; // 핸들의 이벤트를 담는 변수
@@ -37,13 +42,15 @@ static const char *flashTimerTag = "Flash_Timer";
 static const char *flashChannelTag = "Flash_Channel";
 static const char *WifiConfigTag = "Wifi_config";
 static const char *sendPhotoTag = "Send_Photo";
+static const char *cJsonParsingTag = "cJsonParsing";
 
 // 네트워크 ID, Password
-const char *ssid = "ORBI96";
-const char *password = "moderncurtain551";
+const char *ssid = "AP-5-1705";
+const char *password = "5435#69d";
 
-char *cJsonBuffer;                                // cJson 파싱 값 저장 버퍼
-char url[35] = "http://192.168.1.51:5000/upload"; // 서버 접속 URL
+char *cJsonBuffer;                                            // cJson 파싱 값 저장 버퍼
+char url[128] = "http://43.200.102.14:5000/api/image/upload"; // 서버 접속 URL
+// char url[128] = "http://127.0.0.1:5000/upload";
 
 // 카메라 설정
 #if ESP_CAMERA_SUPPORTED
@@ -81,15 +88,27 @@ void tune_sensor_for_quality(void)
 {
     sensor_t *s = esp_camera_sensor_get();
 
-    s->set_gain_ctrl(s, 0);     // AGC 끄기 (밝기 변동 줄임, 필요시 켜두세요)
-    s->set_exposure_ctrl(s, 1); // AE 켜기 (노출 자동)
-    s->set_brightness(s, 1);    // -2~2 (기본 0)
-    s->set_contrast(s, 2);      // -2~2
-    s->set_saturation(s, 1);    // -2~2
-    s->set_sharpness(s, 2);     // 0~3
-    s->set_denoise(s, 1);       // 0: 끔, 1: 켬
-    s->set_wb_mode(s, 0);       // 자동 화이트밸런스
-    s->set_quality(s, 8);       // JPEG 품질 (이미 설정하신 값)
+    // 자동 제어 (기본 On 권장)
+    s->set_whitebal(s, 1);      // AWB
+    s->set_exposure_ctrl(s, 1); // AEC
+    s->set_gain_ctrl(s, 1);     // AGC
+    s->set_ae_level(s, -1);
+    s->set_gainceiling(s, GAINCEILING_16X);
+    s->set_aec2(s, 1);
+
+    // 렌즈/픽셀 보정 (체감효과 큼)
+    s->set_lenc(s, 1); // Lens correction(비네팅 완화)
+    s->set_bpc(s, 1);  // Bad Pixel Correction
+    s->set_wpc(s, 1);  // White Pixel Correction
+
+    // 톤/선명도 (상황 맞춰 살짝)
+    s->set_brightness(s, 0); // -2~2
+    s->set_contrast(s, 1);   // -2~2 (텍스트 대비↑에 도움)
+    s->set_saturation(s, 0); // -2~2
+    s->set_whitebal(s, 0);
+    // (센서에 따라 지원될 때만)
+    if (s->set_sharpness)
+        s->set_sharpness(s, 2); // -2~2
 }
 #endif
 
@@ -224,8 +243,8 @@ void wifi_init(void)
 
     wifi_config_t wifi_config = {
         .sta = {
-            .ssid = "ORBI96",
-            .password = "moderncurtain551",
+            .ssid = "AP-5-1705",
+            .password = "5435#69d",
             .threshold.authmode = WIFI_AUTH_WPA2_PSK, // 연결할 AP의 최소 인증 방식 지정
         },
     };
@@ -243,8 +262,6 @@ int sendPhoto(const char *url, char *resp_buf, size_t resp_buf_sz)
     int rc = ESP_FAIL;
     camera_fb_t *pic = NULL;
     esp_http_client_handle_t client = NULL;
-    char *tail = NULL;
-    char *head = NULL;
 
     // 카메라 사진 촬영
     ESP_ERROR_CHECK(ledc_set_duty(LEDC_LOW_SPEED_MODE, LEDC_CHANNEL_1, 500));
@@ -266,34 +283,18 @@ int sendPhoto(const char *url, char *resp_buf, size_t resp_buf_sz)
     ESP_LOGI(captureTag, "사진이 찍혔습니다 ! / 사진 크기 : %zu", pic->len);
 
     const char *boundary = "----ESP32CamBoundary1234"; // 멀티파트에서 각 파트를 구분하는 구분자 문자열
-                                                       // 멀티파트의 앞 부분을 담음 (Boundary의 여러 정보들을 담으며 넉넉하게 확보)
-
-    int head_need_len = snprintf(NULL, 0,
-                                 "--%s\r\n"
-                                 "Content-Disposition: form-data; name=\"image\"; filename=\"esp32-cam.jpg\"\r\n"
-                                 "Content-Type: image/jpeg\r\n\r\n",
-                                 boundary);
-
-    head = (char *)malloc(head_need_len + 1);
+    // 멀티파트의 앞 부분을 담음 (Boundary의 여러 정보들을 담으며 넉넉하게 확보)
+    char head[256];
     // 멀티파트의 각 헤더로 서버가 읽을 필드명과 파일명을 지정함 (헤더와 바디 사이 빈 줄)
-    int head_len = snprintf(head, head_need_len + 1,
+    int head_len = snprintf(head, sizeof(head),
                             "--%s\r\n"
                             "Content-Disposition: form-data; name=\"image\"; filename=\"esp32-cam.jpg\"\r\n"
                             "Content-Type: image/jpeg\r\n\r\n",
                             boundary);
 
-    if (head_len != head_need_len)
-        ESP_LOGE(captureTag, "멀티파트 Head부분 에러");
-
-    int tail_need_len = snprintf(NULL, 0, "\r\n--%s--\r\n", boundary);
-
-    if (tail_need_len <= 0)
-        ESP_LOGE(captureTag, "tail에 필요한 사이즈 구하기 실패");
-
-    // 멀티파이트를 닫는 부분이라 짧음
-    tail = (char *)malloc(tail_need_len + 1);
-
-    int tail_len = snprintf(tail, tail_need_len + 1, "\r\n--%s--\r\n", boundary);
+    // 멀티파이트를 닫는 부분이라 짧음 (넉넉하게 확보)
+    char tail[64];
+    int tail_len = snprintf(tail, sizeof(tail), "\r\n--%s--\r\n", boundary);
 
     if (head_len <= 0 || tail_len <= 0)
     {
@@ -318,8 +319,8 @@ int sendPhoto(const char *url, char *resp_buf, size_t resp_buf_sz)
     if (!client)
     {
         ESP_LOGI(sendPhotoTag, "http client초기화 실패");
-        rc = -3;
         goto WRITE_FAIL;
+        return -3;
     }
 
     // 헤더 설정
@@ -362,34 +363,76 @@ int sendPhoto(const char *url, char *resp_buf, size_t resp_buf_sz)
 
     esp_http_client_fetch_headers(client);
 
+    // 응답 바디를 resp_buf로 읽기
+    int total = 0;
+    while (1)
+    {
+        int r = esp_http_client_read(client, resp_buf + total, (int)resp_buf_sz - 1 - total);
+        if (r <= 0)
+            break;
+        total += r;
+        if ((size_t)total >= resp_buf_sz - 1)
+            break;
+    }
+    resp_buf[total] = '\0';
+    // ESP_LOGI(sendPhotoTag, "RAW JSON (%dB): %.*s", total, total, resp_buf);
+
+    parse_json_body(resp_buf, total, client);
     rc = ESP_OK;
 
-WRITE_FAIL:
+WRITE_FAIL: // 모든 설정들을 종료
     if (client)
     {
         esp_http_client_close(client);
         esp_http_client_cleanup(client);
     }
-
     if (pic)
     {
-        esp_camera_fb_return(pic); // free() 절대 금지
-        pic = NULL;
+        esp_camera_fb_return(pic);
     }
-
-    if (head)
-    {
-        free(head);
-        head = NULL;
-    }
-
-    if (tail)
-    {
-        free(tail);
-        tail = NULL;
-    }
-
     return rc;
+}
+
+void parse_json_body(const char *body, size_t len, esp_http_client_handle_t client)
+{
+    if (!body || len == 0 || len > MAX_JSON_BODY)
+    {
+        ESP_LOGE(cJsonParsingTag, "조건이 부합하지 않습니다. (len : %zu)", len);
+        return;
+    }
+
+    char *buffer = (char *)malloc(len + 1);
+    if (!buffer)
+    {
+        ESP_LOGE(cJsonParsingTag, "동적 메모리 할당 실패");
+        return;
+    }
+
+    memcpy(buffer, body, len);
+    buffer[len] = '\0';
+
+    cJSON *root = cJSON_Parse(buffer);
+    if (!root)
+    {
+        ESP_LOGE(cJsonParsingTag, "노드 얻어오기 실패");
+        free(buffer);
+        return;
+    }
+
+    cJSON *msg = cJSON_GetObjectItemCaseSensitive(root, "test_value");
+    if (cJSON_IsNumber(msg))
+    {
+        // int value = msg->valueint;
+        ESP_LOGI(cJsonParsingTag, "-----------------------\n valueInt : %d", msg->valueint);
+    }
+    else if (cJSON_IsString(msg))
+    {
+        // int value = atoi(msg->valueint);
+        ESP_LOGI(cJsonParsingTag, "-----------------------\n valueString : %s", msg->valuestring);
+    }
+
+    cJSON_Delete(root);
+    free(buffer);
 }
 
 void app_main(void)
