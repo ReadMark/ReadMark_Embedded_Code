@@ -171,19 +171,3 @@ WRITE_FAIL:
 
     return rc;
 }
-
-void app_main(void)
-{
-
-    char resp[256];
-    int code = sendPhoto(url, resp, sizeof(resp));
-
-    if (code >= 200 && code < 300)
-    {
-        ESP_LOGI(sendPhotoTag, "업로드 성공 %d", code);
-    }
-    else
-    {
-        ESP_LOGI(sendPhotoTag, "업로드 실패 %d", code);
-    }
-}

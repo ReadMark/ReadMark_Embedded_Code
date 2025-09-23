@@ -97,17 +97,3 @@ esp_err_t init_camera(void)
 
     return ESP_OK;
 }
-
-void app_main(void)
-{
-#if ESP_CAMERA_SUPPORTED // 판 맵 설정이 ESP_CAMERA_SUPPORTED라면 실행
-    if (ESP_OK != init_camera())
-    {
-        return;
-    }
-    tune_sensor_for_quality();
-#else
-    ESP_LOGE(captureTag, "이 보드는 카메라 지원이 안됩니다 .");
-    return;
-#endif
-}

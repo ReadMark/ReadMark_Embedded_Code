@@ -112,9 +112,3 @@ void wifi_init(void)
 
     ESP_LOGI(WifiConfigTag, "wifi_init finished. SSID:%s password:%s", wifi_config.sta.ssid, wifi_config.sta.password);
 }
-
-void app_main(void)
-{
-    // wifi 초기화
-    wifi_init();
-}
