@@ -256,14 +256,8 @@ void wifi_init(void)
     ESP_LOGI(WifiConfigTag, "wifi_init finished. SSID:%s password:%s", wifi_config.sta.ssid, wifi_config.sta.password);
 }
 
-// 이미지 HTTP 전송
-int sendPhoto(const char *url, char *resp_buf, size_t resp_buf_sz)
+camera_fb_t *capture(int rc, camera_fb_t *pic)
 {
-    int rc = ESP_FAIL;
-    camera_fb_t *pic = NULL;
-    esp_http_client_handle_t client = NULL;
-
-    // 카메라 사진 촬영
     ESP_ERROR_CHECK(ledc_set_duty(LEDC_LOW_SPEED_MODE, LEDC_CHANNEL_1, 500));
     ESP_ERROR_CHECK(ledc_update_duty(LEDC_LOW_SPEED_MODE, LEDC_CHANNEL_1));
     vTaskDelay(pdMS_TO_TICKS(50));
@@ -272,6 +266,19 @@ int sendPhoto(const char *url, char *resp_buf, size_t resp_buf_sz)
 
     ESP_ERROR_CHECK(ledc_set_duty(LEDC_LOW_SPEED_MODE, LEDC_CHANNEL_1, 0));
     ESP_ERROR_CHECK(ledc_update_duty(LEDC_LOW_SPEED_MODE, LEDC_CHANNEL_1));
+
+    return pic;
+}
+
+// 이미지 HTTP 전송
+int sendPhoto(const char *url, char *resp_buf, size_t resp_buf_sz)
+{
+    int rc = ESP_FAIL;
+    camera_fb_t *pic = NULL;
+    esp_http_client_handle_t client = NULL;
+
+    // 카메라 사진 촬영
+    pic = capture(rc, pic);
 
     if (!pic || !pic->buf || pic->len == 0)
     {
