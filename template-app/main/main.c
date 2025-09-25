@@ -256,7 +256,7 @@ void wifi_init(void)
     ESP_LOGI(WifiConfigTag, "wifi_init finished. SSID:%s password:%s", wifi_config.sta.ssid, wifi_config.sta.password);
 }
 
-camera_fb_t *capture(int rc, camera_fb_t *pic)
+camera_fb_t *capture(camera_fb_t *pic)
 {
     ESP_ERROR_CHECK(ledc_set_duty(LEDC_LOW_SPEED_MODE, LEDC_CHANNEL_1, 500));
     ESP_ERROR_CHECK(ledc_update_duty(LEDC_LOW_SPEED_MODE, LEDC_CHANNEL_1));
@@ -278,7 +278,7 @@ int sendPhoto(const char *url, char *resp_buf, size_t resp_buf_sz)
     esp_http_client_handle_t client = NULL;
 
     // 카메라 사진 촬영
-    pic = capture(rc, pic);
+    pic = capture(pic);
 
     if (!pic || !pic->buf || pic->len == 0)
     {

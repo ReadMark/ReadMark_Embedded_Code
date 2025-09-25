@@ -43,6 +43,6 @@ int sendPhoto(const char *url, char *resp_buf, size_t resp_buf_sz);
 esp_err_t init_camera(void);
 void tune_sensor_for_quality(void);
 void parse_json_body(const char *body, size_t len, esp_http_client_handle_t client);
-camera_fb_t *capture(int rc, camera_fb_t *pic);
+camera_fb_t *capture(camera_fb_t *pic);
 
 #endif
