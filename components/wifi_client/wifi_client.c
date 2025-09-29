@@ -9,6 +9,7 @@
 #include "cJSON.h"
 
 void websocket_app_start(void);
+void websocket_send_msg(esp_websocket_client_handle_t client);
 
 bool websocket_start = false;
 
@@ -18,23 +19,34 @@ static const char *TAG = "WIFI";
 #define WIFI_PASS "4dc00gk820"
 #define SERVER_URL "ws://43.200.102.14:5000/ws"
 
-static void wifi_event_handler(void *arg, esp_event_base_t event_base, int32_t event_id, void *event_data)
+esp_websocket_client_config_t websocket_cfg = {
+    .uri = SERVER_URL,
+    .disable_auto_reconnect = false,
+    .cert_pem = NULL,
+    .use_global_ca_store = false,
+    .transport = WEBSOCKET_TRANSPORT_OVER_TCP,
+};
+
+esp_websocket_client_handle_t client = NULL // 여러 함수에서 쓰기 위해 전역 선언
+
+    static void
+    wifi_event_handler(void *arg, esp_event_base_t event_base, int32_t event_id, void *event_data)
 {
-    if(event_base == WIFI_EVENT && event_id == WIFI_EVENT_STA_START)
+    if (event_base == WIFI_EVENT && event_id == WIFI_EVENT_STA_START)
     {
         esp_wifi_connect();
     }
-    else if(event_base == WIFI_EVENT && event_id == WIFI_EVENT_STA_DISCONNECTED)
+    else if (event_base == WIFI_EVENT && event_id == WIFI_EVENT_STA_DISCONNECTED)
     {
         ESP_LOGW(TAG, "wifi re connecting..");
         esp_wifi_connect();
     }
-    else if(event_base == IP_EVENT && event_id == IP_EVENT_STA_GOT_IP)
+    else if (event_base == IP_EVENT && event_id == IP_EVENT_STA_GOT_IP)
     {
-        ip_event_got_ip_t* event = (ip_event_got_ip_t*) event_data;
+        ip_event_got_ip_t *event = (ip_event_got_ip_t *)event_data;
         ESP_LOGI(TAG, "Got IP : " IPSTR, IP2STR(&event->ip_info.ip));
 
-        if(!websocket_start)
+        if (!websocket_start)
         {
             websocket_app_start();
             websocket_start = true;
@@ -58,8 +70,7 @@ void wifi_init(void)
     wifi_config_t wifi_config = {
         .sta = {
             .ssid = WIFI_SSID,
-            .password = WIFI_PASS
-        },
+            .password = WIFI_PASS},
     };
 
     ESP_ERROR_CHECK(esp_wifi_set_mode(WIFI_MODE_STA));
@@ -71,68 +82,79 @@ void wifi_init(void)
 
 static void websocket_event_handler(void *arg, esp_event_base_t event_base, int32_t event_id, void *event_data)
 {
-    esp_websocket_event_data_t *data = (esp_websocket_event_data_t*)event_data;
+    esp_websocket_event_data_t *data = (esp_websocket_event_data_t *)event_data;
 
-    switch(event_id)
+    switch (event_id)
     {
-        case WEBSOCKET_EVENT_CONNECTED:
-            ESP_LOGI(TAG, "websocket connecting success");
-            break;
-        
-        case WEBSOCKET_EVENT_DISCONNECTED:
-            ESP_LOGI(TAG, "websocket disconnect");
-            break;
+    case WEBSOCKET_EVENT_CONNECTED:
+        ESP_LOGI(TAG, "websocket connecting success");
+        break;
 
-        case WEBSOCKET_EVENT_DATA:
+    case WEBSOCKET_EVENT_DISCONNECTED:
+        ESP_LOGI(TAG, "websocket disconnect");
+        break;
+
+    case WEBSOCKET_EVENT_DATA:
+    {
+        ESP_LOGI(TAG, "message reception [%.*s]", data->data_len, (char *)data->data_ptr);
+
+        char *msg = strndup((const char *)data->data_ptr, data->data_len);
+        if (msg == NULL)
         {
-            ESP_LOGI(TAG, "message reception [%.*s]", data->data_len, (char*)data->data_ptr);
+            ESP_LOGE(TAG, "Failed to allocate memory for message");
+            break;
+        }
 
-            char *msg = strndup((const char*)data->data_ptr, data->data_len);
-            if (msg == NULL)
-            {
-                ESP_LOGE(TAG, "Failed to allocate memory for message");
-                break;
-            }
-
-            cJSON *root = cJSON_Parse(msg);
-            if (root == NULL)
-            {
-                ESP_LOGE(TAG, "Invalid JSON: %s", msg);
-                free(msg);
-                break;
-            }
-
-            cJSON *text = cJSON_GetObjectItem(root, "text");
-            cJSON *color = cJSON_GetObjectItem(root, "color");
-
-            if (cJSON_IsString(text)) {
-                uint16_t col = 0xFFFF; // 기본 흰색
-                if (cJSON_IsNumber(color)) {
-                    col = (uint16_t)color->valueint;
-                }
-
-                // OLED에 표시
-                oled_display_text(text->valuestring, col);
-            }
-
-            cJSON_Delete(root);
+        cJSON *root = cJSON_Parse(msg);
+        if (root == NULL)
+        {
+            ESP_LOGE(TAG, "Invalid JSON: %s", msg);
             free(msg);
             break;
         }
+
+        cJSON *text = cJSON_GetObjectItem(root, "text");
+        cJSON *color = cJSON_GetObjectItem(root, "color");
+
+        if (cJSON_IsString(text))
+        {
+            uint16_t col = 0xFFFF; // 기본 흰색
+            if (cJSON_IsNumber(color))
+            {
+                col = (uint16_t)color->valueint;
+            }
+
+            // OLED에 표시
+            oled_display_text(text->valuestring, col);
+        }
+
+        cJSON_Delete(root);
+        free(msg);
+        break;
+    }
     }
 }
 
 void websocket_app_start(void)
 {
-    esp_websocket_client_config_t websocket_cfg = {
-        .uri = SERVER_URL,
-        .disable_auto_reconnect = false,
-        .cert_pem = NULL,
-        .use_global_ca_store = false,
-        .transport = WEBSOCKET_TRANSPORT_OVER_TCP,
-    };
-
     esp_websocket_client_handle_t client = esp_websocket_client_init(&websocket_cfg);
-    esp_websocket_register_events(client, ESP_EVENT_ANY_ID, websocket_event_handler, (void*)client);
+    esp_websocket_register_events(client, ESP_EVENT_ANY_ID, websocket_event_handler, (void *)client);
     esp_websocket_client_start(client);
+}
+
+void websocket_send_msg(void)
+{
+    if (!esp_websocket_client_is_connected(client))
+    {
+        ESP_LOGE(TAG, "WS not connected");
+        return;
+    }
+
+    char *jsonUserId = "{\"id\":1, \"value\":1}";
+
+    int sendLen = esp_websocket_client_send_text(client, jsonUserId, strlen(jsonUserId), portMAX_DELAY)
+
+        if (sendLen <= 0)
+            ESP_LOGE(TAG, "WS msg send failed");
+    else ESP_LOGI(TAG, "sent %d bytes msg", sendLen);
 }

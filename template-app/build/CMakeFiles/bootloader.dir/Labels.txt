@@ -1,0 +1,13 @@
+# Target labels
+ bootloader
+# Source files and their labels
+C:/GItKraken/ReadMark_Embedded_Code/template-app/build/CMakeFiles/bootloader
+C:/GItKraken/ReadMark_Embedded_Code/template-app/build/CMakeFiles/bootloader.rule
+C:/GItKraken/ReadMark_Embedded_Code/template-app/build/CMakeFiles/bootloader-complete.rule
+C:/GItKraken/ReadMark_Embedded_Code/template-app/build/bootloader-prefix/src/bootloader-stamp/bootloader-build.rule
+C:/GItKraken/ReadMark_Embedded_Code/template-app/build/bootloader-prefix/src/bootloader-stamp/bootloader-configure.rule
+C:/GItKraken/ReadMark_Embedded_Code/template-app/build/bootloader-prefix/src/bootloader-stamp/bootloader-download.rule
+C:/GItKraken/ReadMark_Embedded_Code/template-app/build/bootloader-prefix/src/bootloader-stamp/bootloader-install.rule
+C:/GItKraken/ReadMark_Embedded_Code/template-app/build/bootloader-prefix/src/bootloader-stamp/bootloader-mkdir.rule
+C:/GItKraken/ReadMark_Embedded_Code/template-app/build/bootloader-prefix/src/bootloader-stamp/bootloader-patch.rule
+C:/GItKraken/ReadMark_Embedded_Code/template-app/build/bootloader-prefix/src/bootloader-stamp/bootloader-update.rule
