@@ -11,7 +11,7 @@
 void websocket_app_start(void);
 
 esp_websocket_client_config_t websocket_cfg = {
-    .uri = SERVER_URL,
+    .uri = "ws://43.200.102.14:5000/ws",
     .disable_auto_reconnect = false,
     .cert_pem = NULL,
     .use_global_ca_store = false,
@@ -140,7 +140,7 @@ void wifi_init(void)
     ESP_LOGI(TAG, "Connecting to Wi-Fi...");
 }
 
-void websocket_send_msg(void)
+void websocket_send_msg(int id)
 {
     if (!esp_websocket_client_is_connected(client))
     {
@@ -148,7 +148,10 @@ void websocket_send_msg(void)
         return;
     }
 
-    char *jsonUserId = "{\"userId\":1, \"value\":1}";
+    int userId = id;
+    char jsonUserId[32];
+
+    snprintf(jsonUserId, sizeof(jsonUserId), "{\"userId\":%d}", userId);
 
     int sendLen = esp_websocket_client_send_text(client, jsonUserId, strlen(jsonUserId), portMAX_DELAY);
 
