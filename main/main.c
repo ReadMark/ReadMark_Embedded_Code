@@ -14,7 +14,7 @@ void app_main(void)
 {
     ESP_LOGI(TAG, "ReadMark start");
     oled_init();
-    oled_draw_string(10, 10, "connecting..", 0xFFFF);
+    oled_clear(0xFFFF);
 
     wifi_init();
 

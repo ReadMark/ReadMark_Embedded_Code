@@ -37,25 +37,36 @@ static void oled_send_cmd(uint8_t cmd)
 // 여긴 데이터 보내기
 static void oled_send_data(const uint8_t *data, int len)
 {
-    spi_transaction_t t = {
-        .length = len * 8,
-        .tx_buffer = data,
-    };
-    gpio_set_level(oled_dc, 1);
-    spi_device_polling_transmit(oled_spi, &t);
+    const int max_transfer = 4092; // IDF에서 허용하는 최대 전송 크기
+    int offset = 0;
+
+    while (len > 0) 
+    {
+        int chunk = (len > max_transfer) ? max_transfer : len;
+
+        spi_transaction_t t = {
+            .length = chunk * 8,
+            .tx_buffer = data + offset,
+        };
+        gpio_set_level(oled_dc, 1);
+        spi_device_polling_transmit(oled_spi, &t);
+
+        offset += chunk;
+        len -= chunk;
+    }
 }
 
 static void oled_set_window(int x0, int y0, int x1, int y1)
 {
-    oled_send_cmd(0x15); // Column
+    oled_send_cmd(0x15);
     oled_send_cmd(x0);
     oled_send_cmd(x1);
 
-    oled_send_cmd(0x75); // Row
+    oled_send_cmd(0x75);
     oled_send_cmd(y0);
     oled_send_cmd(y1);
 
-    oled_send_cmd(0x5C); // Write RAM
+    oled_send_cmd(0x5C);
 }
 
 static void oled_draw_pixel(int x, int y, uint16_t color)
@@ -65,17 +76,39 @@ static void oled_draw_pixel(int x, int y, uint16_t color)
     oled_send_data(data, 2);
 }
 
+
+void oled_fill_rect(int x0, int y0, int x1, int y1, uint16_t color)
+{
+    int w = x1 - x0 + 1;
+    int h = y1 - y0 + 1;
+    int count = w * h;
+
+    oled_set_window(x0, y0, x1, y1);
+
+    // DMA용 버퍼 할당
+    uint8_t *buf = heap_caps_malloc(count * 2, MALLOC_CAP_DMA);
+    if (!buf) return;
+
+    for (int i = 0; i < count; i++) {
+        buf[2*i]   = color >> 8;   // 상위바이트
+        buf[2*i+1] = color & 0xFF; // 하위바이트
+    }
+
+    oled_send_data(buf, count * 2);
+    free(buf);
+}
+
 static void oled_draw_char(int x, int y, char c, uint16_t color)
 {
     if (c < 32 || c > 126) return;
     const uint8_t *bitmap = font5x7[c - 32];
 
-    for (int col = 0; col < 5; col++) {
+    for (int col = 0; col < 5; col++) 
+    {
         uint8_t line = bitmap[col];
-        for (int row = 0; row < 7; row++) {
-            if (line & (1 << row)) {
-                oled_draw_pixel(x + col, y + row, color);
-            }
+        for (int row = 0; row < 7; row++) 
+        {
+            if (line & (1 << row)) oled_draw_pixel(x + col, y + row, color);
         }
     }
 }
@@ -84,8 +117,10 @@ void oled_draw_string(int x, int y, const char *str, uint16_t color)
 {
     int orig_x = x;
 
-    while (*str) {
-        if (*str == '\n') {
+    while (*str) 
+    {
+        if (*str == '\n') 
+        {
             y += 8;    // 줄바꿈, 글자 높이(7) + 1
             x = orig_x; // x 위치 초기화
             str++;
@@ -97,13 +132,15 @@ void oled_draw_string(int x, int y, const char *str, uint16_t color)
     }
 }
 
-void oled_clear(uint16_t color) {
+void oled_clear(uint16_t color) 
+{
     oled_set_window(0, 0, width-1, height-1);
 
     size_t size = width * height * 2;
     uint8_t *buf = heap_caps_malloc(size, MALLOC_CAP_DMA);
 
-    for (int i = 0; i < width * height; i++) {
+    for (int i = 0; i < width * height; i++) 
+    {
         buf[2*i] = color >> 8;
         buf[2*i+1] = color & 0xFF;
     }
@@ -190,7 +227,7 @@ esp_err_t oled_init(void)
     if (ret != ESP_OK) return ret;
 
     spi_device_interface_config_t devcfg = {
-        .clock_speed_hz = 20 * 1000 * 1000,
+        .clock_speed_hz = 10 * 1000 * 1000,
         .mode = 0,
         .spics_io_num = oled_cs,
         .queue_size = 1,
