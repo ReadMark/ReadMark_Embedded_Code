@@ -140,7 +140,7 @@ void wifi_init(void)
     ESP_LOGI(TAG, "Connecting to Wi-Fi...");
 }
 
-void websocket_send_msg(int id)
+void websocket_send_msg(int userId)
 {
     if (!esp_websocket_client_is_connected(client))
     {
@@ -148,7 +148,6 @@ void websocket_send_msg(int id)
         return;
     }
 
-    int userId = id;
     char jsonUserId[32];
 
     snprintf(jsonUserId, sizeof(jsonUserId), "{\"userId\":%d}", userId);
