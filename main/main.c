@@ -20,7 +20,7 @@ void app_main(void)
     wifi_init();
 
     sensors_init();
-    int touch_hold_counter = 0, userid = 1;
+    int touch_hold_counter = 0, userid = 1, PRESSURE_THRESHOLD = 0;
     bool userid_send = false;
 
     while (1)
@@ -30,23 +30,25 @@ void app_main(void)
         {
             touch_hold_counter++;
         }
-        else
+        else 
         {
-            if (touch_hold_counter > TOUCH_HOLD_COUNT_OFF)
+            // 손을 뗐을 때 시간 계산
+            if (touch_hold_counter > TOUCH_HOLD_COUNT_OFF) 
             {
                 ESP_LOGI(TAG, "전원을 끕니다..");
                 esp_deep_sleep_start();
-            }
-
-            else if (touch_hold_counter < TOUCH_HOLD_COUNT_OFF && touch_hold_counter > TOUCH_HOLD_COUNT_SEND)
+            } 
+            else if (touch_hold_counter > TOUCH_HOLD_COUNT_SEND) 
             {
                 ESP_LOGI(TAG, "%d번을 선택합니다.", userid);
-                userid_send = true;
-            }
-
-            if(userid_send == false)
+                // 여기서 서버로 userid 전송
+                // 서버로 보내기
+            } 
+            else if (touch_hold_counter > 0) 
             {
+                // 짧게 눌렀으면 유저ID 증가
                 userid++;
+                ESP_LOGI(TAG, "%d번 유저", userid);
             }
 
             touch_hold_counter = 0;
@@ -55,11 +57,16 @@ void app_main(void)
         // 압력센서 체크
         if (is_book_closed())
         {
-            ESP_LOGI(TAG, "Book is closed!");
+            PRESSURE_THRESHOLD++;
+            if (PRESSURE_THRESHOLD > TOUCH_HOLD_COUNT_OFF) 
+            {
+                ESP_LOGI(TAG, "전원을 끕니다..");
+                esp_deep_sleep_start();
+            }
         }
         else
         {
-            ESP_LOGI(TAG, "Book is open!");
+            PRESSURE_THRESHOLD = 0;
         }
 
         vTaskDelay(pdMS_TO_TICKS(10));

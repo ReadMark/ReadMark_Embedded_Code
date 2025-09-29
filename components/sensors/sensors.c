@@ -11,7 +11,7 @@ static const char *TAG = "SENSORS";
 
 // 압력센서 설정
 #define PRESSURE_ADC ADC1_CHANNEL_6
-#define PRESSURE_THRESHOLD 3000
+#define PRESSURE_THRESHOLD 2000
 
 void sensors_init(void)
 {
