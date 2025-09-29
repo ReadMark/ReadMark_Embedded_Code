@@ -8,7 +8,6 @@ static const char *TAG = "SENSORS";
 // 터치센서 설정
 #define TOUCH_PIN 4
 #define TOUCH_THRESHOLD 2000  // 터치 인식 임계값
-#define TOUCH_HOLD_COUNT 200  // 200 * 10ms = 2초 이상 눌렀을 때
 
 // 압력센서 설정
 #define PRESSURE_ADC ADC1_CHANNEL_6

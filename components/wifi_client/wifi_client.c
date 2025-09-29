@@ -9,6 +9,7 @@
 #include "cJSON.h"
 
 void websocket_app_start(void);
+void useridfunc(esp_websocket_event_data_t *data);
 
 bool websocket_start = false;
 
@@ -16,7 +17,7 @@ static const char *TAG = "WIFI";
 
 #define WIFI_SSID "KT_GiGA_6F98"
 #define WIFI_PASS "4dc00gk820"
-#define SERVER_URL "ws://43.200.102.14:5000/ws"
+#define SERVER_URL "ws://43.200.102.14:5000/ws" 
 
 static void wifi_event_handler(void *arg, esp_event_base_t event_base, int32_t event_id, void *event_data)
 {
@@ -40,33 +41,6 @@ static void wifi_event_handler(void *arg, esp_event_base_t event_base, int32_t e
             websocket_start = true;
         }
     }
-}
-
-void wifi_init(void)
-{
-    ESP_ERROR_CHECK(nvs_flash_init());
-    ESP_ERROR_CHECK(esp_netif_init());
-    ESP_ERROR_CHECK(esp_event_loop_create_default());
-    esp_netif_create_default_wifi_sta();
-
-    wifi_init_config_t cfg = WIFI_INIT_CONFIG_DEFAULT();
-    ESP_ERROR_CHECK(esp_wifi_init(&cfg));
-
-    ESP_ERROR_CHECK(esp_event_handler_register(WIFI_EVENT, ESP_EVENT_ANY_ID, &wifi_event_handler, NULL));
-    ESP_ERROR_CHECK(esp_event_handler_register(IP_EVENT, IP_EVENT_STA_GOT_IP, &wifi_event_handler, NULL));
-
-    wifi_config_t wifi_config = {
-        .sta = {
-            .ssid = WIFI_SSID,
-            .password = WIFI_PASS
-        },
-    };
-
-    ESP_ERROR_CHECK(esp_wifi_set_mode(WIFI_MODE_STA));
-    ESP_ERROR_CHECK(esp_wifi_set_config(WIFI_IF_STA, &wifi_config));
-    ESP_ERROR_CHECK(esp_wifi_start());
-
-    ESP_LOGI(TAG, "Connecting to Wi-Fi...");
 }
 
 static void websocket_event_handler(void *arg, esp_event_base_t event_base, int32_t event_id, void *event_data)
@@ -120,6 +94,7 @@ static void websocket_event_handler(void *arg, esp_event_base_t event_base, int3
             break;
         }
     }
+    useridfunc(data);
 }
 
 void websocket_app_start(void)
@@ -135,4 +110,67 @@ void websocket_app_start(void)
     esp_websocket_client_handle_t client = esp_websocket_client_init(&websocket_cfg);
     esp_websocket_register_events(client, ESP_EVENT_ANY_ID, websocket_event_handler, (void*)client);
     esp_websocket_client_start(client);
+}
+
+void useridfunc(esp_websocket_event_data_t *data) {
+    cJSON *root = NULL;
+    char *userId = strndup((const char*)data->data_ptr, data->data_len);
+
+    if(userId == NULL) {
+        ESP_LOGE(TAG, "UserId Parsing Error");
+        goto JSON_FAIL;
+    } 
+
+    root = cJSON_Parse(userId);
+
+    if (root == NULL) {
+        ESP_LOGE(TAG, "Empty cJson file");
+        goto JSON_FAIL;
+    }
+
+    cJSON *realUserId = cJSON_GetObjectItem(root, "userId");
+    
+    if (realUserId == NULL) {
+        ESP_LOGE(TAG, "Empty msg !");
+        goto JSON_FAIL;
+    }
+    
+    ESP_LOGI(TAG, "USERID : %d", realUserId->valueint);
+
+JSON_FAIL:
+    if (userId) {
+        free(userId);
+    }
+
+    if (root) {
+        cJSON_Delete(root);
+    }
+    return;
+}
+
+void wifi_init(void)
+{
+    ESP_ERROR_CHECK(nvs_flash_init());
+    ESP_ERROR_CHECK(esp_netif_init());
+    ESP_ERROR_CHECK(esp_event_loop_create_default());
+    esp_netif_create_default_wifi_sta();
+
+    wifi_init_config_t cfg = WIFI_INIT_CONFIG_DEFAULT();
+    ESP_ERROR_CHECK(esp_wifi_init(&cfg));
+
+    ESP_ERROR_CHECK(esp_event_handler_register(WIFI_EVENT, ESP_EVENT_ANY_ID, &wifi_event_handler, NULL));
+    ESP_ERROR_CHECK(esp_event_handler_register(IP_EVENT, IP_EVENT_STA_GOT_IP, &wifi_event_handler, NULL));
+
+    wifi_config_t wifi_config = {
+        .sta = {
+            .ssid = WIFI_SSID,
+            .password = WIFI_PASS
+        },
+    };
+
+    ESP_ERROR_CHECK(esp_wifi_set_mode(WIFI_MODE_STA));
+    ESP_ERROR_CHECK(esp_wifi_set_config(WIFI_IF_STA, &wifi_config));
+    ESP_ERROR_CHECK(esp_wifi_start());
+
+    ESP_LOGI(TAG, "Connecting to Wi-Fi...");
 }

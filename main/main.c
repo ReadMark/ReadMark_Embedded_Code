@@ -8,7 +8,8 @@
 
 static const char *TAG = "MAIN";
 
-#define TOUCH_HOLD_COUNT 200 // 200 * 10ms = 2초
+#define TOUCH_HOLD_COUNT_OFF 400 // 400 * 10ms = 4초
+#define TOUCH_HOLD_COUNT_SEND 200 // 200 * 10ms = 2초
 
 void app_main(void)
 {
@@ -19,7 +20,8 @@ void app_main(void)
     wifi_init();
 
     sensors_init();
-    int touch_hold_counter = 0;
+    int touch_hold_counter = 0, userid = 1;
+    bool userid_send = false;
 
     while (1)
     {
@@ -27,14 +29,26 @@ void app_main(void)
         if (is_touch_pressed())
         {
             touch_hold_counter++;
-            if (touch_hold_counter > TOUCH_HOLD_COUNT)
+        }
+        else
+        {
+            if (touch_hold_counter > TOUCH_HOLD_COUNT_OFF)
             {
                 ESP_LOGI(TAG, "전원을 끕니다..");
                 esp_deep_sleep_start();
             }
-        }
-        else
-        {
+
+            else if (touch_hold_counter < TOUCH_HOLD_COUNT_OFF && touch_hold_counter > TOUCH_HOLD_COUNT_SEND)
+            {
+                ESP_LOGI(TAG, "%d번을 선택합니다.", userid);
+                userid_send = true;
+            }
+
+            if(userid_send == false)
+            {
+                userid++;
+            }
+
             touch_hold_counter = 0;
         }
 
