@@ -105,7 +105,6 @@ static void websocket_event_handler(void *arg, esp_event_base_t event_base, int3
         break;
     }
     }
-    useridfunc(data);
 }
 
 void websocket_app_start(void)
@@ -149,11 +148,12 @@ void websocket_send_msg(void)
         return;
     }
 
-    char *jsonUserId = "{\"id\":1, \"value\":1}";
+    char *jsonUserId = "{\"userId\":1, \"value\":1}";
 
-    int sendLen = esp_websocket_client_send_text(client, jsonUserId, strlen(jsonUserId), portMAX_DELAY)
+    int sendLen = esp_websocket_client_send_text(client, jsonUserId, strlen(jsonUserId), portMAX_DELAY);
 
-        if (sendLen <= 0)
-            ESP_LOGE(TAG, "WS msg send failed");
-    else ESP_LOGI(TAG, "sent %d bytes msg", sendLen);
+    if (sendLen <= 0)
+        ESP_LOGE(TAG, "WS msg send failed");
+    else
+        ESP_LOGI(TAG, "sent %d bytes msg", sendLen);
 }
