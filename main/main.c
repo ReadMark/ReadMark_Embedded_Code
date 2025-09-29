@@ -48,6 +48,6 @@ void app_main(void)
             ESP_LOGI(TAG, "Book is open!");
         }
 
-        vTaskDelay(pdMS_TO_TICKS(10));
+        vTaskDelay(pdMS_TO_TICKS(10));  
     }
 }
