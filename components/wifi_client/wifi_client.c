@@ -11,7 +11,7 @@
 void websocket_app_start(void);
 
 esp_websocket_client_config_t websocket_cfg = {
-    .uri = "ws://43.200.102.14:5000/ws",
+    .uri = "ws://43.200.102.14:5000/ws/esp32",
     .disable_auto_reconnect = false,
     .cert_pem = NULL,
     .use_global_ca_store = false,
@@ -24,9 +24,9 @@ bool websocket_start = false;
 
 static const char *TAG = "WIFI";
 
-#define WIFI_SSID "KT_GiGA_6F98"
-#define WIFI_PASS "4dc00gk820"
-#define SERVER_URL "ws://43.200.102.14:5000/ws"
+#define WIFI_SSID "AP-5-1705"
+#define WIFI_PASS "5435#69d"
+#define SERVER_URL "ws://43.200.102.14:5000/ws/esp32"
 
 static void wifi_event_handler(void *arg, esp_event_base_t event_base, int32_t event_id, void *event_data)
 {
@@ -83,7 +83,7 @@ static void websocket_event_handler(void *arg, esp_event_base_t event_base, int3
             ESP_LOGE(TAG, "Invalid JSON: %s", msg);
             free(msg);
             break;
-        }
+        }  
 
         cJSON *text = cJSON_GetObjectItem(root, "text");
         cJSON *color = cJSON_GetObjectItem(root, "color");
@@ -109,7 +109,7 @@ static void websocket_event_handler(void *arg, esp_event_base_t event_base, int3
 
 void websocket_app_start(void)
 {
-    esp_websocket_client_handle_t client = esp_websocket_client_init(&websocket_cfg);
+    client = esp_websocket_client_init(&websocket_cfg);
     esp_websocket_register_events(client, ESP_EVENT_ANY_ID, websocket_event_handler, (void *)client);
     esp_websocket_client_start(client);
 }
@@ -123,7 +123,7 @@ void wifi_init(void)
 
     wifi_init_config_t cfg = WIFI_INIT_CONFIG_DEFAULT();
     ESP_ERROR_CHECK(esp_wifi_init(&cfg));
-
+//connecting
     ESP_ERROR_CHECK(esp_event_handler_register(WIFI_EVENT, ESP_EVENT_ANY_ID, &wifi_event_handler, NULL));
     ESP_ERROR_CHECK(esp_event_handler_register(IP_EVENT, IP_EVENT_STA_GOT_IP, &wifi_event_handler, NULL));
 
@@ -142,20 +142,19 @@ void wifi_init(void)
 
 void websocket_send_msg(int userId)
 {
-    if (!esp_websocket_client_is_connected(client))
-    {
-        ESP_LOGE(TAG, "WS not connected");
-        return;
+    char jsonUserId[64];
+    snprintf(jsonUserId, sizeof(jsonUserId), "{\"type\":\"user_login\", \"userId\":4}");
+
+    if (client && esp_websocket_client_is_connected(client)) {
+        int sendLen = esp_websocket_client_send_text(client, jsonUserId, strlen(jsonUserId), portMAX_DELAY);
+
+        if (sendLen <= 0)
+            ESP_LOGE(TAG, "WS msg send failed");
+        else
+            ESP_LOGI(TAG, "sent %d bytes msg", sendLen);
     }
 
-    char jsonUserId[32];
-
-    snprintf(jsonUserId, sizeof(jsonUserId), "{\"userId\":%d}", userId);
-
-    int sendLen = esp_websocket_client_send_text(client, jsonUserId, strlen(jsonUserId), portMAX_DELAY);
-
-    if (sendLen <= 0)
-        ESP_LOGE(TAG, "WS msg send failed");
-    else
-        ESP_LOGI(TAG, "sent %d bytes msg", sendLen);
+    else {
+        ESP_LOGE(TAG, "WS fucking disconnected FUCK !");
+    }
 }

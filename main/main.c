@@ -8,6 +8,7 @@
 
 static const char *TAG = "MAIN";
 
+#define PRESSURE_THRESHOLD_HOLD_COUNT_OFF 1500 // 1500 * 10ms = 15초
 #define TOUCH_HOLD_COUNT_OFF 400 // 400 * 10ms = 4초
 #define TOUCH_HOLD_COUNT_SEND 200 // 200 * 10ms = 2초
 
@@ -20,7 +21,7 @@ void app_main(void)
     wifi_init();
 
     sensors_init();
-    int touch_hold_counter = 0, userid = 1, PRESSURE_THRESHOLD = 0;
+    int touch_hold_counter = 0, userid = 1, PRESSURE_THRESHOLD = 0, book = 1;
     bool userid_send = false;
 
     while (1)
@@ -45,11 +46,15 @@ void app_main(void)
                 websocket_send_msg(userid);
                 // 서버로 보내기
             } 
-            else if (touch_hold_counter > 0) 
+            else if (touch_hold_counter > 0 && userid_send == false) 
             {
                 // 짧게 눌렀으면 유저ID 증가
                 userid++;
                 ESP_LOGI(TAG, "%d번 유저", userid);
+            }
+            else if (userid_send == true)
+            {
+
             }
 
             touch_hold_counter = 0;
@@ -59,10 +64,9 @@ void app_main(void)
         if (is_book_closed())
         {
             PRESSURE_THRESHOLD++;
-            if (PRESSURE_THRESHOLD > TOUCH_HOLD_COUNT_OFF) 
+            if (PRESSURE_THRESHOLD > PRESSURE_THRESHOLD_HOLD_COUNT_OFF) 
             {
-                ESP_LOGI(TAG, "전원을 끕니다..");
-                esp_deep_sleep_start();
+                sleep_mode();
             }
         }
         else

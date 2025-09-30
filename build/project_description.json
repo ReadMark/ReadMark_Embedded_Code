@@ -1,7 +1,7 @@
 {
     "version":            "1",
     "project_name":       "ReadMark_Embeddeed_Code",
-    "project_version":    "2317085-dirty",
+    "project_version":    "b4e97d0-dirty",
     "project_path":       "C:/Users/user/Repository/ReadMark_Embedded_Code",
     "idf_path":           "C:/Users/user/Espressif/frameworks/esp-idf-v4.4.8",
     "build_dir":          "C:/Users/user/Repository/ReadMark_Embedded_Code/build",

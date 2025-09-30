@@ -2,11 +2,14 @@
 #include "driver/adc.h"
 #include "driver/touch_pad.h"
 #include "esp_log.h"
-
-static const char *TAG = "SENSORS";
+#include <stdio.h>
+#include <sys/time.h>
+#include "sdkconfig.h"
+#include "esp_sleep.h"
+#include "driver/rtc_io.h"
 
 // 터치센서 설정
-#define TOUCH_PIN 4
+#define TOUCH_PIN GPIO_NUM_4
 #define TOUCH_THRESHOLD 2000  // 터치 인식 임계값
 #define TOUCH_HOLD_COUNT 200  // 200 * 10ms = 2초 이상 눌렀을 때
 
@@ -14,30 +17,27 @@ static const char *TAG = "SENSORS";
 #define PRESSURE_ADC ADC1_CHANNEL_6
 #define PRESSURE_THRESHOLD 3000
 
+// 슬립모드 설정
+#define WAKE_PIN GPIO_NUM_33
+
 void sensors_init(void)
 {
-    ESP_LOGI(TAG, "Init sensors");
+    gpio_config_t io_conf = {
+        .pin_bit_mask = 1ULL << TOUCH_PIN,
+        .mode = GPIO_MODE_INPUT,
+        .pull_up_en = GPIO_PULLUP_DISABLE,
+        .pull_down_en = GPIO_PULLDOWN_DISABLE,
+        .intr_type = GPIO_INTR_DISABLE
+    };
+    gpio_config(&io_conf);
 
-    // 터치 init
-    touch_pad_init();
-    touch_pad_config(TOUCH_PIN, 0);
-
-    // ADC init
     adc1_config_width(ADC_WIDTH_BIT_12);
     adc1_config_channel_atten(PRESSURE_ADC, ADC_ATTEN_DB_12);
 }
 
-int read_touch_sensor(void)
-{
-    uint16_t touch_val;
-    touch_pad_read(TOUCH_PIN, &touch_val);
-    return (int)touch_val;
-}
-
 bool is_touch_pressed(void)
 {
-    int val = read_touch_sensor();
-    return val < TOUCH_THRESHOLD;
+    return gpio_get_level(TOUCH_PIN) == 1;
 }
 
 // 압력센서 읽기
@@ -50,4 +50,13 @@ bool is_book_closed(void)
 {
     int raw = read_pressure_sensor();
     return raw > PRESSURE_THRESHOLD;
+}
+
+void sleep_mode(void)
+{
+    gpio_pullup_en(WAKE_PIN); // 풀업
+
+    esp_sleep_enable_ext0_wakeup(WAKE_PIN, 1);
+
+    esp_deep_sleep_start();
 }
