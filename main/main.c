@@ -21,8 +21,9 @@ void app_main(void)
     wifi_init();
 
     sensors_init();
-    int touch_hold_counter = 0, userid = 1, PRESSURE_THRESHOLD = 0, book = 1;
+    int touch_hold_counter = 0, userid = 1, PRESSURE_THRESHOLD = 0;
     bool userid_send = false;
+    oled_display_text("Hello SSD1351", 0xF800);
 
     while (1)
     {
@@ -54,7 +55,26 @@ void app_main(void)
             }
             else if (userid_send == true)
             {
+                // 파싱 -> 선택 -> 보내기
+                int bid = bookIdParse();
 
+                if (bid == 0)
+                {
+                    ESP_LOGE(TAG, "Book id parsing failed");
+                    break;
+                }
+
+                // 길게 눌렀을 때 책 선택 (id 보내기)
+                if (touch_hold_counter > TOUCH_HOLD_COUNT_SEND && userid_send == true)
+                {
+                    next_book_msg(bid);
+                }
+
+                // 한 번 눌렀을 때 다음 책 id 받아오기
+                else if (touch_hold_counter > 0 && userid_send == true)
+                {
+                    next_book_msg(0);
+                }
             }
 
             touch_hold_counter = 0;

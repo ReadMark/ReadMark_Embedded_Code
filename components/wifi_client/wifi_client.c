@@ -19,6 +19,7 @@ esp_websocket_client_config_t websocket_cfg = {
 };
 
 esp_websocket_client_handle_t client = NULL;
+esp_websocket_event_data_t *data = NULL;
 
 bool websocket_start = false;
 
@@ -54,7 +55,7 @@ static void wifi_event_handler(void *arg, esp_event_base_t event_base, int32_t e
 
 static void websocket_event_handler(void *arg, esp_event_base_t event_base, int32_t event_id, void *event_data)
 {
-    esp_websocket_event_data_t *data = (esp_websocket_event_data_t *)event_data;
+    data = (esp_websocket_event_data_t *)event_data;
 
     switch (event_id)
     {
@@ -123,7 +124,6 @@ void wifi_init(void)
 
     wifi_init_config_t cfg = WIFI_INIT_CONFIG_DEFAULT();
     ESP_ERROR_CHECK(esp_wifi_init(&cfg));
-//connecting
     ESP_ERROR_CHECK(esp_event_handler_register(WIFI_EVENT, ESP_EVENT_ANY_ID, &wifi_event_handler, NULL));
     ESP_ERROR_CHECK(esp_event_handler_register(IP_EVENT, IP_EVENT_STA_GOT_IP, &wifi_event_handler, NULL));
 
@@ -142,19 +142,88 @@ void wifi_init(void)
 
 void websocket_send_msg(int userId)
 {
-    char jsonUserId[64];
-    snprintf(jsonUserId, sizeof(jsonUserId), "{\"type\":\"user_login\", \"userId\":4}");
-
-    if (client && esp_websocket_client_is_connected(client)) {
-        int sendLen = esp_websocket_client_send_text(client, jsonUserId, strlen(jsonUserId), portMAX_DELAY);
-
-        if (sendLen <= 0)
-            ESP_LOGE(TAG, "WS msg send failed");
-        else
-            ESP_LOGI(TAG, "sent %d bytes msg", sendLen);
+    if (!esp_websocket_client_is_connected(client))
+    {
+        ESP_LOGE(TAG, "WS not connected");
+        return;
     }
 
-    else {
-        ESP_LOGE(TAG, "WS fucking disconnected FUCK !");
+    char jsonUserId[32];
+
+    snprintf(jsonUserId, sizeof(jsonUserId), "{\"type\":user_login, \"userId\":%d}", userId);
+
+    int sendLen = esp_websocket_client_send_text(client, jsonUserId, strlen(jsonUserId), portMAX_DELAY);
+
+    if (sendLen <= 0)
+        ESP_LOGE(TAG, "WS msg send failed");
+    else
+        ESP_LOGI(TAG, "sent %d bytes msg", sendLen);
+}
+
+void next_book_msg(int sendBookId)
+{
+    if (!esp_websocket_client_is_connected(client))
+    {
+        ESP_LOGE(TAG, "WS not connected");
+        return;
     }
+
+    char jsonNextBookId[32];
+
+    // id를 받았을 때는 bookid 전송
+    if (sendBookId > 0)
+    {
+        snprintf(jsonNextBookId, sizeof(jsonNextBookId), "{\"bookId\":%d}", sendBookId);
+    }
+
+    // 받은 id가 없다면, 다음 페이지 요청
+    if (sendBookId == 0)
+    {
+        snprintf(jsonNextBookId, sizeof(jsonNextBookId), "{\"type\":next_book}");
+    }
+
+    // 결겅된 jsonNextBookId를 보내기
+    int sendLen = esp_websocket_client_send_text(client, jsonNextBookId, strlen(jsonNextBookId), portMAX_DELAY);
+
+    if (sendLen <= 0)
+        ESP_LOGE(TAG, "Next bookId msg send failed");
+    else
+        ESP_LOGI(TAG, "sent %d bytes msg", sendLen);
+}
+
+// bookid 파싱해오기
+int bookIdParse()
+{
+    cJSON *root = NULL;
+
+    char *bookid = strndup((const char *)data->data_ptr, data->data_len);
+
+    if (bookid == NULL)
+    {
+        ESP_LOGE(TAG, "Failed copy memory");
+        goto FAIL;
+    }
+
+    root = cJSON_Parse(bookid);
+    if (root == NULL)
+    {
+        ESP_LOGE(TAG, "bookid parse failed");
+        goto FAIL;
+    }
+
+    // 파싱 내용 출력
+    cJSON *bookIdText = cJSON_GetObjectItem(root, "bookId");
+
+    ESP_LOGE(TAG, "Bookid : %d", bookIdText->valueint);
+
+    return bookIdText->valueint;
+
+// 실패 시 모든 메모리 해제 및 실패 메시지 (return 0)
+FAIL:
+    if (bookid)
+        free(bookid);
+
+    if (root)
+        cJSON_Delete(root);
+    return 0;
 }

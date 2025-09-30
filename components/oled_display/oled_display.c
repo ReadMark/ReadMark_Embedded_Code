@@ -71,11 +71,10 @@ static void oled_set_window(int x0, int y0, int x1, int y1)
 
 static void oled_draw_pixel(int x, int y, uint16_t color)
 {
-    uint8_t data[2] = { color >> 8, color & 0xFF };
+    uint8_t data[2] = {color >> 8, color &0xFF};
     oled_set_window(x, y, x, y);
     oled_send_data(data, 2);
 }
-
 
 void oled_fill_rect(int x0, int y0, int x1, int y1, uint16_t color)
 {
@@ -100,142 +99,98 @@ void oled_fill_rect(int x0, int y0, int x1, int y1, uint16_t color)
 
 static void oled_draw_char(int x, int y, char c, uint16_t color)
 {
-    if (c < 32 || c > 126) return;
+    if(c < 32 || c > 126) return;
     const uint8_t *bitmap = font5x7[c - 32];
 
-    for (int col = 0; col < 5; col++) 
+    for(int col = 0; col < 5; col++)
     {
         uint8_t line = bitmap[col];
-        for (int row = 0; row < 7; row++) 
+        for(int row = 0; row < 7; row++)
         {
-            if (line & (1 << row)) oled_draw_pixel(x + col, y + row, color);
+            if(line & (1 << (6 - row))) // <- 비트 순서 수정
+            {
+                oled_draw_pixel(x + col, y + row, color);
+            }
         }
     }
 }
 
-void oled_draw_string(int x, int y, const char *str, uint16_t color)
+void oled_draw_string(int x, int y, const char* str, uint16_t color)
 {
     int orig_x = x;
-
-    while (*str) 
-    {
-        if (*str == '\n') 
-        {
-            y += 8;    // 줄바꿈, 글자 높이(7) + 1
-            x = orig_x; // x 위치 초기화
-            str++;
-            continue;
+    while(*str){
+        if(*str == '\n'){
+            y += 8; 
+            x = orig_x; 
+            str++; 
+            continue; 
         }
-        oled_draw_char(x, y, *str, color);
-        x += 6; // 글자 폭(5) + 간격(1)
+        oled_draw_char(x, y, *str, color); // <- 여기서 draw_char 사용
+        x += 6;
         str++;
     }
 }
 
-void oled_clear(uint16_t color) 
+void oled_clear(uint16_t color)
 {
-    oled_set_window(0, 0, width-1, height-1);
-
-    size_t size = width * height * 2;
-    uint8_t *buf = heap_caps_malloc(size, MALLOC_CAP_DMA);
-
-    for (int i = 0; i < width * height; i++) 
+    uint8_t *buf = heap_caps_malloc(width * height * 2, MALLOC_CAP_DMA);
+    for(int i = 0; i < width * height;i++)
     {
-        buf[2*i] = color >> 8;
-        buf[2*i+1] = color & 0xFF;
+        buf[2 * i] = color >> 8;
+        buf[2 * i + 1] = color & 0xFF;
     }
-    
-    oled_send_data(buf, size);
+
+    oled_send_cmd(0x15); oled_send_data((uint8_t[]){0, width - 1}, 2);
+    oled_send_cmd(0x75); oled_send_data((uint8_t[]){0, height - 1}, 2);
+    oled_send_cmd(0x5C);
+    oled_send_data(buf, width * height * 2);
     free(buf);
 }
 
-static void init_sequence(void)
+static void oled_init_sequence(void)
 {
-    oled_send_cmd(0xFD); // Command Lock
-    uint8_t data1 = 0x12;
-    oled_send_data(&data1, 1);
-
-    oled_send_cmd(0xFD);
-    data1 = 0xB1;
-    oled_send_data(&data1, 1);
-
-    oled_send_cmd(0xAE); // Display Off
-
-    oled_send_cmd(0xB3); // Clock Div
-    data1 = 0xF1;
-    oled_send_data(&data1, 1);
-
-    oled_send_cmd(0xCA); // MUX Ratio
-    data1 = 0x7F;
-    oled_send_data(&data1, 1);
-
-    oled_send_cmd(0xA0); // Set Remap
-    data1 = 0x74; // RGB, 65k color
-    oled_send_data(&data1, 1);
-
-    oled_send_cmd(0xA1); // Display Start Line
-    data1 = 0x00;
-    oled_send_data(&data1, 1);
-
-    oled_send_cmd(0xA2); // Display Offset
-    data1 = 0x00;
-    oled_send_data(&data1, 1);
-
-    oled_send_cmd(0xAB); // VDD Internal
-    data1 = 0x01;
-    oled_send_data(&data1, 1);
-
-    oled_send_cmd(0xB1); // Precharge
-    data1 = 0x32;
-    oled_send_data(&data1, 1);
-
-    oled_send_cmd(0xBE); // VCOMH
-    data1 = 0x05;
-    oled_send_data(&data1, 1);
-
-    oled_send_cmd(0xC1); // Contrast
-    uint8_t contrast[] = {0xC8, 0x80, 0xC8};
-    oled_send_data(contrast, 3);
-
-    oled_send_cmd(0xC7); // Master Contrast
-    data1 = 0x0F;
-    oled_send_data(&data1, 1);
-
-    oled_send_cmd(0xB4); // Segment Low Voltage
-    uint8_t segvol[] = {0xA0, 0xB5, 0x55};
-    oled_send_data(segvol, 3);
-
-    oled_send_cmd(0xB6); // Second Precharge
-    data1 = 0x01;
-    oled_send_data(&data1, 1);
-
+    oled_send_cmd(0xFD); oled_send_data((uint8_t[]){0x12},1); // Command Lock
+    oled_send_cmd(0xFD); oled_send_data((uint8_t[]){0xB1},1); // Command Lock
+    oled_send_cmd(0xAE); // Display OFF
+    oled_send_cmd(0xB3); oled_send_data((uint8_t[]){0xF1},1); // Clock Div
+    oled_send_cmd(0xCA); oled_send_data((uint8_t[]){0x7F},1); // MUX Ratio
+    oled_send_cmd(0xA0); oled_send_data((uint8_t[]){0x74},1); // Set Remap RGB
+    oled_send_cmd(0xA1); oled_send_data((uint8_t[]){0x00},1); // Display start line
+    oled_send_cmd(0xA2); oled_send_data((uint8_t[]){0x00},1); // Display offset
+    oled_send_cmd(0xAB); oled_send_data((uint8_t[]){0x01},1); // VDD internal
+    oled_send_cmd(0xB4); oled_send_data((uint8_t[]){0xA0,0xB5,0x55},3); // Segment low voltage
+    oled_send_cmd(0xB1); oled_send_data((uint8_t[]){0x32},1); // Precharge
+    oled_send_cmd(0xBE); oled_send_data((uint8_t[]){0x05},1); // VCOMH
+    oled_send_cmd(0xC1); oled_send_data((uint8_t[]){0xC8,0x80,0xC8},3); // Contrast
+    oled_send_cmd(0xC7); oled_send_data((uint8_t[]){0x0F},1); // Master Contrast
+    oled_send_cmd(0xB6); oled_send_data((uint8_t[]){0x01},1); // Second Precharge
     oled_send_cmd(0xAF); // Display ON
 }
 
 esp_err_t oled_init(void)
 {
-    ESP_LOGI(OledTag, "OLED init start");
-
+    // SPI 버스 초기화
     spi_bus_config_t buscfg = {
         .mosi_io_num = oled_mosi,
         .miso_io_num = -1,
         .sclk_io_num = oled_sclk,
         .quadwp_io_num = -1,
-        .quadhd_io_num = -1,
+        .quadhd_io_num = -1
     };
     esp_err_t ret = spi_bus_initialize(VSPI_HOST, &buscfg, SPI_DMA_CH_AUTO);
-    if (ret != ESP_OK) return ret;
+    if(ret != ESP_OK) return ret;
 
+    // SPI 디바이스 추가
     spi_device_interface_config_t devcfg = {
         .clock_speed_hz = 10 * 1000 * 1000,
         .mode = 0,
         .spics_io_num = oled_cs,
-        .queue_size = 1,
+        .queue_size = 1
     };
     ret = spi_bus_add_device(VSPI_HOST, &devcfg, &oled_spi);
-    if (ret != ESP_OK) return ret;
+    if(ret != ESP_OK) return ret;
 
-    // Reset 핀
+    // Reset
     gpio_reset_pin(oled_rst);
     gpio_set_direction(oled_rst, GPIO_MODE_OUTPUT);
     gpio_set_level(oled_rst, 0);
@@ -247,10 +202,7 @@ esp_err_t oled_init(void)
     gpio_reset_pin(oled_dc);
     gpio_set_direction(oled_dc, GPIO_MODE_OUTPUT);
 
-    // SSD1351 초기화 시퀀스
-    init_sequence();
-
-    ESP_LOGI(OledTag, "OLED initialized");
+    oled_init_sequence();
     return ESP_OK;
 }
 
