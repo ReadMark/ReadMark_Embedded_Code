@@ -695,13 +695,6 @@ C:/Users/user/Repository/ReadMark_Embedded_Code/build/esp-idf/oled_display/CMake
 C:/Users/user/Repository/ReadMark_Embedded_Code/build/esp-idf/oled_display/CMakeFiles/install.dir
 C:/Users/user/Repository/ReadMark_Embedded_Code/build/esp-idf/oled_display/CMakeFiles/install/local.dir
 C:/Users/user/Repository/ReadMark_Embedded_Code/build/esp-idf/oled_display/CMakeFiles/install/strip.dir
-C:/Users/user/Repository/ReadMark_Embedded_Code/build/esp-idf/sensors/CMakeFiles/__idf_sensors.dir
-C:/Users/user/Repository/ReadMark_Embedded_Code/build/esp-idf/sensors/CMakeFiles/edit_cache.dir
-C:/Users/user/Repository/ReadMark_Embedded_Code/build/esp-idf/sensors/CMakeFiles/rebuild_cache.dir
-C:/Users/user/Repository/ReadMark_Embedded_Code/build/esp-idf/sensors/CMakeFiles/list_install_components.dir
-C:/Users/user/Repository/ReadMark_Embedded_Code/build/esp-idf/sensors/CMakeFiles/install.dir
-C:/Users/user/Repository/ReadMark_Embedded_Code/build/esp-idf/sensors/CMakeFiles/install/local.dir
-C:/Users/user/Repository/ReadMark_Embedded_Code/build/esp-idf/sensors/CMakeFiles/install/strip.dir
 C:/Users/user/Repository/ReadMark_Embedded_Code/build/esp-idf/wifi_client/CMakeFiles/__idf_wifi_client.dir
 C:/Users/user/Repository/ReadMark_Embedded_Code/build/esp-idf/wifi_client/CMakeFiles/edit_cache.dir
 C:/Users/user/Repository/ReadMark_Embedded_Code/build/esp-idf/wifi_client/CMakeFiles/rebuild_cache.dir
@@ -709,6 +702,13 @@ C:/Users/user/Repository/ReadMark_Embedded_Code/build/esp-idf/wifi_client/CMakeF
 C:/Users/user/Repository/ReadMark_Embedded_Code/build/esp-idf/wifi_client/CMakeFiles/install.dir
 C:/Users/user/Repository/ReadMark_Embedded_Code/build/esp-idf/wifi_client/CMakeFiles/install/local.dir
 C:/Users/user/Repository/ReadMark_Embedded_Code/build/esp-idf/wifi_client/CMakeFiles/install/strip.dir
+C:/Users/user/Repository/ReadMark_Embedded_Code/build/esp-idf/sensors/CMakeFiles/__idf_sensors.dir
+C:/Users/user/Repository/ReadMark_Embedded_Code/build/esp-idf/sensors/CMakeFiles/edit_cache.dir
+C:/Users/user/Repository/ReadMark_Embedded_Code/build/esp-idf/sensors/CMakeFiles/rebuild_cache.dir
+C:/Users/user/Repository/ReadMark_Embedded_Code/build/esp-idf/sensors/CMakeFiles/list_install_components.dir
+C:/Users/user/Repository/ReadMark_Embedded_Code/build/esp-idf/sensors/CMakeFiles/install.dir
+C:/Users/user/Repository/ReadMark_Embedded_Code/build/esp-idf/sensors/CMakeFiles/install/local.dir
+C:/Users/user/Repository/ReadMark_Embedded_Code/build/esp-idf/sensors/CMakeFiles/install/strip.dir
 C:/Users/user/Repository/ReadMark_Embedded_Code/build/esp-idf/espressif__led_strip/CMakeFiles/__idf_espressif__led_strip.dir
 C:/Users/user/Repository/ReadMark_Embedded_Code/build/esp-idf/espressif__led_strip/CMakeFiles/edit_cache.dir
 C:/Users/user/Repository/ReadMark_Embedded_Code/build/esp-idf/espressif__led_strip/CMakeFiles/rebuild_cache.dir
