@@ -45,15 +45,14 @@ static const char *sendPhotoTag = "Send_Photo";
 static const char *cJsonParsingTag = "cJsonParsing";
 
 // 네트워크 ID, Password
-const char *ssid = "AP-5-1705";
-const char *password = "5435#69d";
+const char *ssid = "SON";
+const char *password = "33483348";
 
 char *cJsonBuffer;                                            // cJson 파싱 값 저장 버퍼
 char url[128] = "http://43.200.102.14:5000/api/image/upload"; // 서버 접속 URL
 // char url[128] = "http://127.0.0.1:5000/upload";
 
 // 카메라 설정
-#if ESP_CAMERA_SUPPORTED
 static camera_config_t camera_config = {
     .pin_pwdn = PWDN_GPIO_NUM,
     .pin_reset = RESET_GPIO_NUM,
@@ -73,44 +72,14 @@ static camera_config_t camera_config = {
     .pin_href = HREF_GPIO_NUM,
     .pin_pclk = PCLK_GPIO_NUM,
 
-    .xclk_freq_hz = 20000000, // 20 MHz
-    .ledc_timer = LEDC_TIMER_0,
-    .ledc_channel = LEDC_CHANNEL_0,
-    .pixel_format = PIXFORMAT_JPEG, // 웹스트리밍/스냅샷 용
-    .frame_size = FRAMESIZE_SVGA,   // SVGA, XGA
-    .jpeg_quality = 8,              // 0(최고)~63(최저)
-    .fb_count = 2,                  // 더 크게 하면 프레임 안정 (2가 빨랐음)
-    .grab_mode = CAMERA_GRAB_LATEST,
-    .fb_location = CAMERA_FB_IN_PSRAM,
+    .xclk_freq_hz = 20000000,
+    .pixel_format = PIXFORMAT_JPEG,
+    .frame_size = FRAMESIZE_QVGA,
+    .jpeg_quality = 14, // 카메라 설정에 따라
+    .fb_count = 1,      // 메모리가 부족하면 초기화가 되지 않을 수 있음
+    .grab_mode = CAMERA_GRAB_WHEN_EMPTY,
+    .fb_location = CAMERA_FB_IN_DRAM,
 };
-
-void tune_sensor_for_quality(void)
-{
-    sensor_t *s = esp_camera_sensor_get();
-
-    // 자동 제어 (기본 On 권장)
-    s->set_whitebal(s, 1);      // AWB
-    s->set_exposure_ctrl(s, 1); // AEC
-    s->set_gain_ctrl(s, 1);     // AGC
-    s->set_ae_level(s, -1);
-    s->set_gainceiling(s, GAINCEILING_16X);
-    s->set_aec2(s, 1);
-
-    // 렌즈/픽셀 보정 (체감효과 큼)
-    s->set_lenc(s, 1); // Lens correction(비네팅 완화)
-    s->set_bpc(s, 1);  // Bad Pixel Correction
-    s->set_wpc(s, 1);  // White Pixel Correction
-
-    // 톤/선명도 (상황 맞춰 살짝)
-    s->set_brightness(s, 0); // -2~2
-    s->set_contrast(s, 1);   // -2~2 (텍스트 대비↑에 도움)
-    s->set_saturation(s, 0); // -2~2
-    s->set_whitebal(s, 0);
-    // (센서에 따라 지원될 때만)
-    if (s->set_sharpness)
-        s->set_sharpness(s, 2); // -2~2
-}
-#endif
 
 // 통신 설정
 const uart_config_t uart_config = {
@@ -144,15 +113,51 @@ const ledc_channel_config_t ledc_channel = {
 // 카메라 초기화
 esp_err_t init_camera(void)
 {
-    esp_err_t err = esp_camera_init(&camera_config); // 설정값 넘기고 상태 받음
-
+    esp_err_t err = esp_camera_init(&camera_config);
     if (err != ESP_OK)
     {
-        ESP_LOGE(captureTag, "카메라 초기화 실패");
+        ESP_LOGE(captureTag, "카메라 초기화 실패: 0x%x", err);
         return err;
     }
-
     return ESP_OK;
+}
+
+void tune_sensor_for_quality(void)
+{
+    sensor_t *s = esp_camera_sensor_get();
+    if (!s)
+    {
+        ESP_LOGE(captureTag, "sensor_get NULL");
+        return;
+    }
+
+    // 자동제어(권장 On)
+    s->set_whitebal(s, 1);      // AWB
+    s->set_exposure_ctrl(s, 1); // AEC
+    s->set_gain_ctrl(s, 1);     // AGC
+    s->set_ae_level(s, -1);
+    if (s->set_gainceiling)
+        s->set_gainceiling(s, GAINCEILING_16X);
+    if (s->set_aec2)
+        s->set_aec2(s, 1);
+
+    // 렌즈/픽셀 보정
+    if (s->set_lenc)
+        s->set_lenc(s, 1);
+    if (s->set_bpc)
+        s->set_bpc(s, 1);
+    if (s->set_wpc)
+        s->set_wpc(s, 1);
+
+    // 톤/선명도
+    if (s->set_brightness)
+        s->set_brightness(s, 0);
+    if (s->set_contrast)
+        s->set_contrast(s, 1);
+    if (s->set_saturation)
+        s->set_saturation(s, 0);
+    if (s->set_sharpness)
+        s->set_sharpness(s, 2);
 }
 
 // 네트워크 핸들러
@@ -243,8 +248,8 @@ void wifi_init(void)
 
     wifi_config_t wifi_config = {
         .sta = {
-            .ssid = "AP-5-1705",
-            .password = "5435#69d",
+            .ssid = "K",
+            .password = "ericeric0223",
             .threshold.authmode = WIFI_AUTH_WPA2_PSK, // 연결할 AP의 최소 인증 방식 지정
         },
     };
@@ -475,10 +480,12 @@ void app_main(void)
     uint8_t uart_buff[BUF_SIZE + 1] = {0};
 
 #if ESP_CAMERA_SUPPORTED // 판 맵 설정이 ESP_CAMERA_SUPPORTED라면 실행
-    if (ESP_OK != init_camera())
-    {
-        return;
-    }
+    // if (ESP_OK != init_camera())
+    // {
+    //     ESP_LOGE(captureTag, "카메라 초기화 실패");
+    //     return;
+    // }
+    init_camera();
     tune_sensor_for_quality();
 
     while (1)

@@ -1,6 +1,5 @@
 idf_component_register(
     SRCS 
-    
     "main.c" 
     "ESP_wifi.c" 
     "ESP_http.c" 

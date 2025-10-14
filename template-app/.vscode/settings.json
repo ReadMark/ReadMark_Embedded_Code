@@ -2,9 +2,11 @@
   "idf.projectDir": "${workspaceFolder}/template-app",
   "idf.buildDir": "${workspaceFolder}/template-app/build",
   "idf.sdkconfigPath": "${workspaceFolder}/template-app/sdkconfig",
-  "cmake.sourceDirectory": "${workspaceFolder}/template-app",
+  "cmake.sourceDirectory": "C:/GItKraken/ReadMark_Embedded_Code/template-app",
   "C_Cpp.default.compileCommands": "${workspaceFolder}/template-app/build/compile_commands.json",
   "files.associations": {
     "freertos.h": "c"
-  }
+  },
+  "idf.flashType": "UART",
+  "idf.portWin": "COM11"
 }

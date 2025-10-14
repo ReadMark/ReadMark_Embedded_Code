@@ -6,8 +6,8 @@
 static const char *WifiConfigTag = "Wifi_config";
 
 // 네트워크 ID, Password
-const char *ssid = "AP-5-1705";
-const char *password = "5435#69d";
+const char *ssid = "SON";
+const char *password = "33483348";
 
 // 서버 통신 설정
 static EventGroupHandle_t s_wifi_evt; // 핸들의 이벤트를 담는 변수
@@ -100,8 +100,8 @@ void wifi_init(void)
 
     wifi_config_t wifi_config = {
         .sta = {
-            .ssid = "ORBI96",
-            .password = "moderncurtain551",
+            .ssid = "SON",
+            .password = "33483348",
             .threshold.authmode = WIFI_AUTH_WPA2_PSK, // 연결할 AP의 최소 인증 방식 지정
         },
     };
