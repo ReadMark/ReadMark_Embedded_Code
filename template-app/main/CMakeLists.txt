@@ -7,5 +7,5 @@ idf_component_register(
     "ESP_camera.c" 
     "ESP_capture.c"
     INCLUDE_DIRS "."
-    REQUIRES esp_wifi wpa_supplicant nvs_flash esp_event esp_netif esp_http_client json
+    REQUIRES esp_wifi wpa_supplicant nvs_flash esp_event esp_netif esp_http_client json fatfs sdmmc
 )

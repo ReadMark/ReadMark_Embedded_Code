@@ -1,10 +1,8 @@
 #include "header.h"
+#include "esp_sleep.h"
 
 #define BUF_SIZE 1024 // 입력 버퍼 사이즈
 #define FLASH_PIN 4   // Flash 핀 설정
-
-// #define UART_RX_BUF (2048)
-// #define UART_TX_BUF (256)
 
 #define MAX_JSON_BODY 1024 // 서버 응답 메시지 제한
 
@@ -43,14 +41,14 @@ static const char *flashChannelTag = "Flash_Channel";
 static const char *WifiConfigTag = "Wifi_config";
 static const char *sendPhotoTag = "Send_Photo";
 static const char *cJsonParsingTag = "cJsonParsing";
+static const char *btnTag = "Button_Error";
 
 // 네트워크 ID, Password
 const char *ssid = "SON";
 const char *password = "33483348";
 
-char *cJsonBuffer;                                            // cJson 파싱 값 저장 버퍼
-char url[128] = "http://43.200.102.14:5000/api/image/upload"; // 서버 접속 URL
-// char url[128] = "http://127.0.0.1:5000/upload";
+char *cJsonBuffer;  // cJson 파싱 값 저장 버퍼
+char url[128] = ""; // 서버 접속 URL
 
 // 카메라 설정
 static camera_config_t camera_config = {
@@ -75,7 +73,7 @@ static camera_config_t camera_config = {
     .xclk_freq_hz = 20000000,
     .pixel_format = PIXFORMAT_JPEG,
     .frame_size = FRAMESIZE_QVGA,
-    .jpeg_quality = 14, // 카메라 설정에 따라
+    .jpeg_quality = 60, // 카메라 설정에 따라
     .fb_count = 1,      // 메모리가 부족하면 초기화가 되지 않을 수 있음
     .grab_mode = CAMERA_GRAB_WHEN_EMPTY,
     .fb_location = CAMERA_FB_IN_DRAM,
@@ -455,9 +453,7 @@ void app_main(void)
     uart_param_config(UART_NUM_0, &uart_config);
     uart_driver_install(UART_NUM_0, BUF_SIZE, 0, 0, NULL, 0);
     uart_set_pin(UART_NUM_0, UART_PIN_NO_CHANGE, UART_PIN_NO_CHANGE, UART_PIN_NO_CHANGE, UART_PIN_NO_CHANGE);
-
     esp_vfs_dev_uart_use_driver(UART_NUM_0);
-
     uart_flush_input(UART_NUM_0);
 
     // GPIO 설정
@@ -476,51 +472,30 @@ void app_main(void)
 
     // wifi 초기화
     wifi_init();
-
-    uint8_t uart_buff[BUF_SIZE + 1] = {0};
+    xEventGroupWaitBits(s_wifi_evt, WIFI_GOTIP_BIT, false, true, portMAX_DELAY);
 
 #if ESP_CAMERA_SUPPORTED // 판 맵 설정이 ESP_CAMERA_SUPPORTED라면 실행
-    // if (ESP_OK != init_camera())
-    // {
-    //     ESP_LOGE(captureTag, "카메라 초기화 실패");
-    //     return;
-    // }
-    init_camera();
-    tune_sensor_for_quality();
 
-    while (1)
+    if (ESP_OK != init_camera())
     {
-        // Flash 코드
-        int len = uart_read_bytes(UART_NUM_0, uart_buff, BUF_SIZE - 1, 100 / portTICK_PERIOD_MS);
+        ESP_LOGE(captureTag, "camera init failed");
+    }
+    else
+    {
+        tune_sensor_for_quality();
 
-        if (len > 0 && len < BUF_SIZE)
+        char resp[256];
+        esp_err_t err = sendPhoto(url, resp, sizeof(resp));
+        if (err != ESP_OK)
         {
-            uart_buff[len] = '\0';
-            char *str = (char *)uart_buff;
-            printf("input : {%s}\n", str);
-
-            while (*str == '\r' || *str == '\n')
-                str++;
-            if (str[0] == '1')
-            {
-                xEventGroupWaitBits(s_wifi_evt, WIFI_GOTIP_BIT, false, true, portMAX_DELAY);
-
-                char resp[256];
-                esp_err_t err = sendPhoto(url, resp, sizeof(resp));
-                if (err != ESP_OK)
-                {
-                    ESP_LOGE(sendPhotoTag, "사진 전송 실패");
-                }
-            }
+            ESP_LOGE(sendPhotoTag, "사진 전송 실패");
         }
         else
-        {
-            uart_buff[BUF_SIZE] = '\0';
-        }
+            ESP_LOGI(sendPhotoTag, "사진 전송 성공");
 
-        // 반응 회복
-        vTaskDelay(pdMS_TO_TICKS(10));
+        vTaskDelay(pdMS_TO_TICKS(50));
     }
+    esp_deep_sleep_start();
 }
 // 보드 고려 조건문
 #else
